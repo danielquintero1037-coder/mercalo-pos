@@ -54,13 +54,19 @@ async def background_sync(app):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    app.state.mongo = AsyncIOMotorClient(MONGO_URL)
+    port = os.environ.get("PORT", "8000")
+    logger.info(f"Starting on port {port}, DB={DB_NAME}, WC={WC_URL}")
+    app.state.mongo = AsyncIOMotorClient(MONGO_URL, serverSelectionTimeoutMS=8000)
     app.state.db = app.state.mongo[DB_NAME]
     db = app.state.db
-    await db.products.create_index([("search_text", "text")])
-    await db.products.create_index("woo_id", unique=True)
-    await db.products.create_index([("total_sales", -1)])
-    await db.products.create_index("categories.id")
+    try:
+        await db.products.create_index([("search_text", "text")])
+        await db.products.create_index("woo_id", unique=True)
+        await db.products.create_index([("total_sales", -1)])
+        await db.products.create_index("categories.id")
+        logger.info("MongoDB indexes OK")
+    except Exception as e:
+        logger.warning(f"MongoDB index creation failed (app will still start): {e}")
     sync_task = asyncio.create_task(background_sync(app))
     yield
     sync_task.cancel()
