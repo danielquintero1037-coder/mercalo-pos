@@ -12,4 +12,4 @@ RUN pip install -r requirements_prod.txt
 COPY backend/ ./backend/
 COPY --from=frontend-build /app/frontend/build ./frontend/build
 EXPOSE 8000
-CMD uvicorn backend.server:app --host 0.0.0.0 --port ${PORT:-8000}
+CMD ["sh", "-c", "uvicorn backend.server:app --host 0.0.0.0 --port ${PORT:-8000}"]
