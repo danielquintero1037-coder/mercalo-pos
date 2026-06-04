@@ -1,0 +1,25 @@
+{
+  "short_name": "Mercalo POS",
+  "name": "Mercalo POS - Call Center",
+  "description": "Sistema POS para pedidos por teléfono - Mercalo",
+  "icons": [
+    {
+      "src": "icon-192.png",
+      "type": "image/png",
+      "sizes": "192x192",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "icon-512.png",
+      "type": "image/png",
+      "sizes": "512x512",
+      "purpose": "any maskable"
+    }
+  ],
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "theme_color": "#dc2626",
+  "background_color": "#ffffff",
+  "categories": ["business", "shopping"]
+}
