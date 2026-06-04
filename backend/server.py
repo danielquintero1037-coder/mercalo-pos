@@ -852,7 +852,7 @@ async def customer_order_status(wc_order_id: int):
 
 @app.get(f"{P}/customer/favorites")
 async def customer_favorites(phone: str = Query(..., min_length=3), limit: int = Query(10, le=20)):
-    """Get favorite products for a customer based on purchase history."""
+    """Get favorite products from local orders, fallback to WooCommerce history."""
     db = get_db()
     pipeline = [
         {"$match": {"customer_phone": {"$regex": phone.strip()}}},
@@ -866,9 +866,40 @@ async def customer_favorites(phone: str = Query(..., min_length=3), limit: int =
         {"$limit": limit},
     ]
     favorites = await db.orders.aggregate(pipeline).to_list(limit)
+
+    # Fallback: search WooCommerce order history by phone
+    if not favorites:
+        try:
+            async with httpx.AsyncClient() as client:
+                resp = await client.get(
+                    f"{WC_URL}/wp-json/wc/v3/orders",
+                    params={
+                        "consumer_key": WC_KEY, "consumer_secret": WC_SECRET,
+                        "search": phone.strip(), "per_page": 10,
+                        "orderby": "date", "order": "desc", "status": "any",
+                    },
+                    headers={"User-Agent": "MercaloPOS/1.0"}, timeout=15,
+                )
+                if resp.status_code == 200:
+                    freq = {}
+                    for order in resp.json():
+                        billing_phone = order.get("billing", {}).get("phone", "")
+                        if phone.strip() not in billing_phone:
+                            continue
+                        for item in order.get("line_items", []):
+                            pid = item.get("product_id")
+                            if pid:
+                                freq[pid] = freq.get(pid, 0) + item.get("quantity", 1)
+                    favorites = [
+                        {"_id": pid, "count": cnt}
+                        for pid, cnt in sorted(freq.items(), key=lambda x: -x[1])[:limit]
+                    ]
+        except Exception:
+            pass
+
     if not favorites:
         return []
-    # Enrich with product data from cache
+
     product_ids = [f["_id"] for f in favorites]
     products = await db.products.find(
         {"woo_id": {"$in": product_ids}},
@@ -879,10 +910,7 @@ async def customer_favorites(phone: str = Query(..., min_length=3), limit: int =
     for f in favorites:
         prod = product_map.get(f["_id"])
         if prod:
-            result.append({
-                **prod,
-                "times_purchased": f["count"],
-            })
+            result.append({**prod, "times_purchased": f["count"]})
     return result
 
 

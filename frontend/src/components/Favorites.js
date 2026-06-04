@@ -26,7 +26,7 @@ export default function Favorites({ phone, addToCart }) {
 
   const formatPrice = (price) => `$${parseInt(price || '0').toLocaleString('es-CO')}`;
 
-  if (!phone || phone.length < 7 || (!loading && products.length === 0)) return null;
+  if (!phone || phone.length < 7) return null;
 
   return (
     <div className="px-2 md:px-4 py-1 md:py-2" data-testid="favorites-section">
@@ -35,9 +35,12 @@ export default function Favorites({ phone, addToCart }) {
         <h2 className="text-[10px] md:text-sm font-bold text-gray-800 uppercase tracking-wide">Tus Favoritos</h2>
       </div>
       {loading ? (
-        <div className="flex items-center justify-center h-10">
+        <div className="flex items-center gap-2 py-2 text-xs text-gray-400">
           <Loader2 className="w-4 h-4 animate-spin text-red-500" />
+          <span>Buscando tus compras anteriores...</span>
         </div>
+      ) : products.length === 0 ? (
+        <p className="text-xs text-gray-400 py-1">Aún no tienes compras con este número. ¡Haz tu primer pedido!</p>
       ) : (
         <div className="flex gap-1.5 md:gap-2 overflow-x-auto no-scrollbar pb-1" data-testid="favorites-list">
           {products.map(product => (
