@@ -1,0 +1,114 @@
+import React, { useState, useEffect } from 'react';
+import { X, Tag } from 'lucide-react';
+
+const API = process.env.REACT_APP_BACKEND_URL || '';
+
+export default function OffersPopup({ onViewAll }) {
+  const [offers, setOffers] = useState([]);
+  const [visible, setVisible] = useState(false);
+
+  const [total, setTotal] = useState(0);
+
+  useEffect(() => {
+    if (sessionStorage.getItem('offers_popup_seen')) return;
+    fetch(`${API}/api/products/offers?limit=50`)
+      .then(r => r.json())
+      .then(data => {
+        if (data && data.length > 0) {
+          setTotal(data.length);
+          setOffers(data.slice(0, 4));
+          setVisible(true);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  const close = () => {
+    setVisible(false);
+    sessionStorage.setItem('offers_popup_seen', '1');
+  };
+
+  const handleViewAll = () => {
+    close();
+    onViewAll();
+  };
+
+  const calcDiscount = (regular, sale) => {
+    const r = parseInt(regular || '0');
+    const s = parseInt(sale || '0');
+    if (r > 0 && s > 0) return Math.round((1 - s / r) * 100);
+    return 0;
+  };
+
+  const fmt = p => `$${parseInt(p || '0').toLocaleString('es-CO')}`;
+
+  if (!visible) return null;
+
+  return (
+    <div className="fixed inset-0 bg-black/60 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4" onClick={close}>
+      <div
+        className="bg-white w-full sm:w-[420px] rounded-t-2xl sm:rounded-2xl shadow-2xl overflow-hidden"
+        onClick={e => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="bg-orange-500 px-4 py-3 flex items-center justify-between text-white">
+          <div className="flex items-center gap-2">
+            <Tag className="w-5 h-5" />
+            <span className="font-bold text-base">¡Ofertas de hoy!</span>
+            <span className="text-xs bg-white/20 px-2 py-0.5 rounded-full">{total} productos</span>
+          </div>
+          <button onClick={close} className="w-7 h-7 rounded-full hover:bg-white/20 flex items-center justify-center">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        {/* Products grid */}
+        <div className="p-3 grid grid-cols-2 gap-2">
+          {offers.map(p => {
+            const disc = calcDiscount(p.regular_price, p.sale_price);
+            return (
+              <div key={p.woo_id} className="rounded-xl border border-orange-100 overflow-hidden bg-orange-50">
+                <div className="relative aspect-square bg-gray-100">
+                  <img
+                    src={p.image_url || 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="80" height="80"><rect fill="%23f3f4f6" width="80" height="80"/></svg>'}
+                    alt={p.name}
+                    className="w-full h-full object-cover"
+                    loading="lazy"
+                  />
+                  {disc > 0 && (
+                    <span className="absolute top-1.5 left-1.5 bg-orange-500 text-white text-[11px] font-bold px-2 py-0.5 rounded-full shadow">
+                      -{disc}%
+                    </span>
+                  )}
+                </div>
+                <div className="p-2">
+                  <p className="text-xs text-gray-700 font-medium leading-tight line-clamp-2">{p.name}</p>
+                  <div className="mt-1 flex flex-col">
+                    <span className="text-[11px] text-gray-400 line-through">{fmt(p.regular_price)}</span>
+                    <span className="text-sm font-bold text-orange-600">{fmt(p.sale_price || p.price)}</span>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Footer */}
+        <div className="px-3 pb-4 flex gap-2">
+          <button
+            onClick={handleViewAll}
+            className="flex-1 bg-orange-500 hover:bg-orange-600 text-white font-bold py-2.5 rounded-xl text-sm transition-colors"
+          >
+            Ver todas las ofertas ({total})
+          </button>
+          <button
+            onClick={close}
+            className="px-4 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-500 hover:bg-gray-50 transition-colors"
+          >
+            Cerrar
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}

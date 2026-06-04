@@ -10,6 +10,7 @@ import MyOrders from './components/MyOrders';
 import Favorites from './components/Favorites';
 import RecentOrders from './components/RecentOrders';
 import OffersPanel from './components/OffersPanel';
+import OffersPopup from './components/OffersPopup';
 import { NotificationBell } from './components/NotificationsPanel';
 
 const API = process.env.REACT_APP_BACKEND_URL || '';
@@ -244,6 +245,7 @@ export default function App() {
       {showOrders && !isCustomerMode && <OrdersPanel onClose={() => setShowOrders(false)} />}
       {showMyOrders && isCustomerMode && <MyOrders onClose={() => setShowMyOrders(false)} addToCart={addDirectToCart} customerPhone={customerPhone} />}
       {showOffers && <OffersPanel onClose={() => setShowOffers(false)} addToCart={addToCart} />}
+      {isCustomerMode && <OffersPopup onViewAll={() => setShowOffers(true)} />}
     </div>
   );
 }
