@@ -20,11 +20,11 @@ from typing import Optional
 load_dotenv()
 logger = logging.getLogger("pos")
 
-MONGO_URL = os.environ.get("MONGO_URL")
-DB_NAME = os.environ.get("DB_NAME")
-WC_URL = os.environ.get("WC_URL")
-WC_KEY = os.environ.get("WC_CONSUMER_KEY")
-WC_SECRET = os.environ.get("WC_CONSUMER_SECRET")
+MONGO_URL = os.environ.get("MONGO_URL", "mongodb://localhost:27017")
+DB_NAME = os.environ.get("DB_NAME", "mercalo_pos")
+WC_URL = os.environ.get("WC_URL", "https://mercalo.co")
+WC_KEY = os.environ.get("WC_CONSUMER_KEY", "")
+WC_SECRET = os.environ.get("WC_CONSUMER_SECRET", "")
 WC_WEBHOOK_SECRET = os.environ.get("WC_WEBHOOK_SECRET", "mercalo-pos-webhook-2026")
 SYNC_INTERVAL_MINUTES = int(os.environ.get("SYNC_INTERVAL_MINUTES", "10"))
 
