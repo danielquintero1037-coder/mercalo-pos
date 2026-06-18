@@ -195,7 +195,7 @@ export default function App() {
               </div>
             </div>
           )}
-          <SearchBar addToCart={addToCart} />
+          <SearchBar addToCart={addToCart} cart={cart} onUpdateQty={updateQty} />
           <TopSellers addToCart={addToCart} categories={categories}>
             {isCustomerMode && <Favorites phone={customerPhone} addToCart={addToCart} />}
           </TopSellers>

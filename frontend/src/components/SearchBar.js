@@ -1,9 +1,9 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Search, Plus, Star } from 'lucide-react';
 
 const API = process.env.REACT_APP_BACKEND_URL || '';
 
-export default function SearchBar({ addToCart }) {
+export default function SearchBar({ addToCart, cart = [], onUpdateQty }) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState([]);
   const [suggested, setSuggested] = useState([]);
@@ -94,6 +94,14 @@ export default function SearchBar({ addToCart }) {
     return () => document.removeEventListener('keydown', handler);
   }, []);
 
+  const cartQtyMap = useMemo(() => {
+    const map = {};
+    cart.forEach(item => {
+      map[item.woo_id] = (map[item.woo_id] || 0) + item.qty;
+    });
+    return map;
+  }, [cart]);
+
   const handleAdd = (product) => {
     addToCart(product);
     setQuery('');
@@ -147,6 +155,8 @@ export default function SearchBar({ addToCart }) {
                   formatPrice={formatPrice}
                   badge={idx + 1}
                   highlighted
+                  cartQty={cartQtyMap[product.woo_id] || 0}
+                  onUpdateQty={onUpdateQty}
                 />
               ))}
             </div>
@@ -161,6 +171,8 @@ export default function SearchBar({ addToCart }) {
                   product={product}
                   onAdd={handleAdd}
                   formatPrice={formatPrice}
+                  cartQty={cartQtyMap[product.woo_id] || 0}
+                  onUpdateQty={onUpdateQty}
                 />
               ))}
             </div>
@@ -171,10 +183,13 @@ export default function SearchBar({ addToCart }) {
   );
 }
 
-function ProductRow({ product, onAdd, formatPrice, badge, highlighted }) {
+function ProductRow({ product, onAdd, formatPrice, badge, highlighted, cartQty = 0, onUpdateQty }) {
+  const isVariable = product.product_type === 'variable' || product.wpp || (product.attributes && product.attributes.length > 0);
+  const cartKey = String(product.woo_id);
+
   return (
     <div
-      className={`flex items-center gap-3 px-3 py-2 hover:bg-gray-50 cursor-pointer transition-colors group ${highlighted ? 'bg-amber-50/30' : ''}`}
+      className={`flex items-center gap-2 px-3 py-2 hover:bg-gray-50 cursor-pointer transition-colors group ${highlighted ? 'bg-amber-50/30' : ''}`}
       onClick={() => onAdd(product)}
       data-testid={`product-row-${product.woo_id}`}
     >
@@ -190,7 +205,14 @@ function ProductRow({ product, onAdd, formatPrice, badge, highlighted }) {
         loading="lazy"
       />
       <div className="flex-1 min-w-0">
-        <p className="text-sm font-medium text-gray-900 truncate">{product.name}</p>
+        <div className="flex items-center gap-1.5">
+          <p className="text-sm font-medium text-gray-900 truncate">{product.name}</p>
+          {isVariable && (
+            <span className="shrink-0 text-[9px] bg-amber-100 text-amber-700 font-bold px-1.5 py-0.5 rounded">
+              {product.wpp ? 'KG/UND' : 'VAR'}
+            </span>
+          )}
+        </div>
         <div className="flex items-center gap-2 text-xs text-gray-500">
           {product.sku && <span>SKU: {product.sku}</span>}
           <span className={product.stock_status === 'instock' ? 'text-green-600' : 'text-red-500'}>
@@ -209,13 +231,36 @@ function ProductRow({ product, onAdd, formatPrice, badge, highlighted }) {
       ) : (
         <span className="text-sm font-bold text-brand-red shrink-0">{formatPrice(product.price)}</span>
       )}
-      <button
-        onClick={(e) => { e.stopPropagation(); onAdd(product); }}
-        className="w-8 h-8 rounded-full bg-brand-red text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
-        data-testid={`add-btn-${product.woo_id}`}
-      >
-        <Plus className="w-4 h-4" />
-      </button>
+
+      {/* Stepper para productos simples en carrito; botón + para variables */}
+      {cartQty > 0 && !isVariable ? (
+        <div className="flex items-center shrink-0" onClick={e => e.stopPropagation()}>
+          <button
+            onClick={() => onUpdateQty && onUpdateQty(cartKey, -1)}
+            className="w-7 h-7 rounded-full bg-gray-200 hover:bg-gray-300 flex items-center justify-center text-sm font-bold text-gray-700"
+            data-testid={`dec-btn-${product.woo_id}`}
+          >−</button>
+          <span className="w-6 text-center text-sm font-bold text-gray-900">{cartQty}</span>
+          <button
+            onClick={() => onAdd(product)}
+            className="w-7 h-7 rounded-full bg-brand-red hover:bg-red-700 flex items-center justify-center text-white"
+            data-testid={`inc-btn-${product.woo_id}`}
+          ><Plus className="w-3.5 h-3.5" /></button>
+        </div>
+      ) : (
+        <button
+          onClick={(e) => { e.stopPropagation(); onAdd(product); }}
+          className={`rounded-full bg-brand-red text-white flex items-center justify-center shrink-0 transition-all ${
+            cartQty > 0
+              ? 'h-8 px-2 gap-1 min-w-[2rem]'
+              : 'w-8 h-8 opacity-100 md:opacity-0 md:group-hover:opacity-100'
+          }`}
+          data-testid={`add-btn-${product.woo_id}`}
+        >
+          <Plus className="w-3.5 h-3.5 shrink-0" />
+          {cartQty > 0 && <span className="text-xs font-bold leading-none">{cartQty}</span>}
+        </button>
+      )}
     </div>
   );
 }

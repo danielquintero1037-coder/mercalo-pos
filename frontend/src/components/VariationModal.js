@@ -109,10 +109,10 @@ export default function VariationModal({ product, onAdd, onClose }) {
               <label className="text-xs font-semibold text-gray-600 uppercase tracking-wide flex items-center gap-1">
                 <Package className="w-3.5 h-3.5" /> {attr.name}
               </label>
-              <div className="mt-1.5 flex flex-wrap gap-1.5">
+              <div className="mt-2 flex flex-wrap gap-2">
                 {attr.options.map(opt => (
                   <button key={opt} onClick={() => setSelectedAttrs(p => ({...p, [attr.name]: opt}))}
-                    className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors border ${
+                    className={`px-4 py-2.5 rounded-lg text-sm font-semibold transition-colors border-2 ${
                       selectedAttrs[attr.name] === opt
                         ? 'bg-brand-red text-white border-brand-red'
                         : 'bg-white text-gray-700 border-gray-200 hover:border-gray-400'
@@ -131,10 +131,10 @@ export default function VariationModal({ product, onAdd, onClose }) {
               <label className="text-xs font-semibold text-gray-600 uppercase tracking-wide flex items-center gap-1">
                 <Scale className="w-3.5 h-3.5" /> Peso
               </label>
-              <div className="mt-1.5 flex gap-1.5">
+              <div className="mt-1.5 flex gap-2">
                 {['UND', 'LB', 'KG'].map(unit => (
                   <button key={unit} onClick={() => { setWeightUnit(unit); setQuantity(1); }}
-                    className={`flex-1 py-2 rounded-md text-xs font-bold transition-colors border ${
+                    className={`flex-1 py-3 rounded-lg text-sm font-bold transition-colors border-2 ${
                       weightUnit === unit
                         ? 'bg-brand-red text-white border-brand-red'
                         : 'bg-white text-gray-700 border-gray-200 hover:border-gray-400'
