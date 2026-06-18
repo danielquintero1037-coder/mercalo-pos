@@ -152,6 +152,7 @@ export default function SearchBar({ addToCart, cart = [], onUpdateQty }) {
                   key={product.woo_id}
                   product={product}
                   onAdd={handleAdd}
+                  onIncrement={addToCart}
                   formatPrice={formatPrice}
                   badge={idx + 1}
                   highlighted
@@ -170,6 +171,7 @@ export default function SearchBar({ addToCart, cart = [], onUpdateQty }) {
                   key={product.woo_id}
                   product={product}
                   onAdd={handleAdd}
+                  onIncrement={addToCart}
                   formatPrice={formatPrice}
                   cartQty={cartQtyMap[product.woo_id] || 0}
                   onUpdateQty={onUpdateQty}
@@ -183,7 +185,7 @@ export default function SearchBar({ addToCart, cart = [], onUpdateQty }) {
   );
 }
 
-function ProductRow({ product, onAdd, formatPrice, badge, highlighted, cartQty = 0, onUpdateQty }) {
+function ProductRow({ product, onAdd, onIncrement, formatPrice, badge, highlighted, cartQty = 0, onUpdateQty }) {
   const isVariable = product.product_type === 'variable' || product.wpp || (product.attributes && product.attributes.length > 0);
   const cartKey = String(product.woo_id);
 
@@ -242,7 +244,7 @@ function ProductRow({ product, onAdd, formatPrice, badge, highlighted, cartQty =
           >−</button>
           <span className="w-6 text-center text-sm font-bold text-gray-900">{cartQty}</span>
           <button
-            onClick={() => onAdd(product)}
+            onClick={() => (onIncrement || onAdd)(product)}
             className="w-7 h-7 rounded-full bg-brand-red hover:bg-red-700 flex items-center justify-center text-white"
             data-testid={`inc-btn-${product.woo_id}`}
           ><Plus className="w-3.5 h-3.5" /></button>
