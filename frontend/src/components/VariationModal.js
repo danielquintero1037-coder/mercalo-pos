@@ -103,8 +103,8 @@ export default function VariationModal({ product, onAdd, onClose }) {
         </div>
 
         <div className="p-4 space-y-4">
-          {/* Variation Attributes */}
-          {(variationData?.attributes || []).map(attr => (
+          {/* Variation Attributes (filtrar CANTIDAD — redundante con WPP) */}
+          {(variationData?.attributes || []).filter(attr => attr.name.toUpperCase() !== 'CANTIDAD').map(attr => (
             <div key={attr.name}>
               <label className="text-xs font-semibold text-gray-600 uppercase tracking-wide flex items-center gap-1">
                 <Package className="w-3.5 h-3.5" /> {attr.name}
