@@ -125,10 +125,30 @@ export default function VariationModal({ product, onAdd, onClose }) {
             </div>
           ))}
 
-          {/* WPP: siempre vende por UND, precio por unidad */}
+          {/* Weight Unit Selector (WPP) */}
           {wpp && (
-            <div className="text-xs text-gray-500">
-              Precio por unidad: {formatPrice(parseFloat(wpp.price_per_kg) * parseFloat(wpp.avg_weight_und))}
+            <div>
+              <label className="text-xs font-semibold text-gray-600 uppercase tracking-wide flex items-center gap-1">
+                <Scale className="w-3.5 h-3.5" /> Peso
+              </label>
+              <div className="mt-2 flex gap-2">
+                {['UND', 'LB', 'KG'].map(unit => (
+                  <button key={unit} onClick={() => { setWeightUnit(unit); setQuantity(1); }}
+                    className={`flex-1 py-3 rounded-lg text-sm font-bold transition-colors border-2 ${
+                      weightUnit === unit
+                        ? 'bg-brand-red text-white border-brand-red'
+                        : 'bg-white text-gray-700 border-gray-200 hover:border-gray-400'
+                    }`}
+                    data-testid={`weight-${unit}`}>
+                    {unit}
+                  </button>
+                ))}
+              </div>
+              <div className="mt-1 text-xs text-gray-500">
+                {weightUnit === 'KG' && `${formatPrice(parseFloat(wpp.price_per_kg))}/kg`}
+                {weightUnit === 'LB' && `${formatPrice(parseFloat(wpp.price_per_kg) * 0.453592)}/lb`}
+                {weightUnit === 'UND' && `~${wpp.avg_weight_und}kg/und = ${formatPrice(parseFloat(wpp.price_per_kg) * parseFloat(wpp.avg_weight_und))}/und`}
+              </div>
             </div>
           )}
 
