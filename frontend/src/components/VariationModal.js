@@ -88,7 +88,7 @@ export default function VariationModal({ product, onAdd, onClose }) {
   const totalPrice = calcPrice();
 
   return (
-    <div className="fixed inset-0 bg-black/40 z-50 flex items-end md:items-center justify-center" onClick={onClose} data-testid="variation-modal">
+    <div className="fixed inset-0 bg-black/40 z-[60] flex items-end md:items-center justify-center" onClick={onClose} data-testid="variation-modal">
       <div className="bg-white rounded-t-2xl md:rounded-xl shadow-2xl w-full md:w-[380px] max-h-[85vh] md:max-h-[80vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
         {/* Header */}
         <div className="flex items-center gap-3 p-4 border-b">

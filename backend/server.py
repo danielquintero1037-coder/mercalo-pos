@@ -309,9 +309,10 @@ async def get_offers(limit: int = Query(50, le=100)):
     pipeline = [
         {"$match": {
             "on_sale": True,
-            "sale_price": {"$nin": ["", None]},
-            "regular_price": {"$nin": ["", None]},
-            "price": {"$nin": ["", "0", "0.00", None]},
+            "$or": [
+                {"sale_price": {"$nin": ["", None]}},
+                {"product_type": "variable"},
+            ],
         }},
         {"$sort": {"total_sales": -1}},
         {"$limit": limit},
