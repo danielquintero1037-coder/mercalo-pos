@@ -26,7 +26,11 @@ export default function TopSellers({ addToCart, categories, children }) {
         const bPromo = b.sale_price && b.regular_price && parseInt(b.sale_price) < parseInt(b.regular_price) ? 1 : 0;
         return bPromo - aPromo;
       });
-      setProducts(prev => isLoadMore ? [...prev, ...data] : data);
+      setProducts(prev => {
+        if (!isLoadMore) return data;
+        const existing = new Set(prev.map(p => p.woo_id));
+        return [...prev, ...data.filter(p => !existing.has(p.woo_id))];
+      });
       setHasMore(data.length >= PAGE_SIZE);
     } catch {
       if (!isLoadMore) setProducts([]);

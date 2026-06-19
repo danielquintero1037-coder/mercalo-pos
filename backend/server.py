@@ -295,7 +295,7 @@ async def top_sellers(category_id: int = Query(None), limit: int = Query(50, le=
         all_ids = [category_id] + [c["id"] for c in children]
         match["categories.id"] = {"$in": all_ids}
     pipeline = [
-        {"$match": match}, {"$sort": {"total_sales": -1}},
+        {"$match": match}, {"$sort": {"total_sales": -1, "woo_id": 1}},
         {"$skip": offset}, {"$limit": limit},
         {"$project": {"_id": 0, "search_text": 0}},
     ]
