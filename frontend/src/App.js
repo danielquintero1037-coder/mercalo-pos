@@ -254,7 +254,7 @@ export default function App() {
       {showOrders && !isCustomerMode && <OrdersPanel onClose={() => setShowOrders(false)} />}
       {showMyOrders && isCustomerMode && <MyOrders onClose={() => setShowMyOrders(false)} addToCart={addDirectToCart} customerPhone={customerPhone} />}
       {showOffers && <OffersPanel onClose={() => setShowOffers(false)} addToCart={addToCart} cart={cart} onUpdateQty={updateQty} />}
-      {isCustomerMode && <OffersPopup onViewAll={() => setShowOffers(true)} />}
+      {isCustomerMode && <OffersPopup onViewAll={() => setShowOffers(true)} addToCart={addToCart} cart={cart} onUpdateQty={updateQty} />}
     </div>
   );
 }

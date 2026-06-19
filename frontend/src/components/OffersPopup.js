@@ -1,13 +1,13 @@
-import React, { useState, useEffect } from 'react';
-import { X, Tag } from 'lucide-react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { X, Tag, Plus, Minus, Check } from 'lucide-react';
 
 const API = process.env.REACT_APP_BACKEND_URL || '';
 
-export default function OffersPopup({ onViewAll }) {
+export default function OffersPopup({ onViewAll, addToCart, cart = [], onUpdateQty }) {
   const [offers, setOffers] = useState([]);
   const [visible, setVisible] = useState(false);
-
   const [total, setTotal] = useState(0);
+  const [toast, setToast] = useState(null);
 
   useEffect(() => {
     if (sessionStorage.getItem('offers_popup_seen')) return;
@@ -22,6 +22,31 @@ export default function OffersPopup({ onViewAll }) {
       })
       .catch(() => {});
   }, []);
+
+  const cartQtyMap = useMemo(() => {
+    const map = {};
+    cart.forEach(item => {
+      map[item.woo_id] = (map[item.woo_id] || 0) + item.qty;
+    });
+    return map;
+  }, [cart]);
+
+  const showToast = useCallback((name) => {
+    setToast(name);
+    setTimeout(() => setToast(null), 1500);
+  }, []);
+
+  const handleAdd = useCallback((product) => {
+    if (addToCart) {
+      addToCart(product);
+      showToast(product.name);
+    }
+  }, [addToCart, showToast]);
+
+  const handleDecrement = useCallback((product) => {
+    const cartKey = String(product.woo_id);
+    if (onUpdateQty) onUpdateQty(cartKey, -1);
+  }, [onUpdateQty]);
 
   const close = () => {
     setVisible(false);
@@ -66,6 +91,7 @@ export default function OffersPopup({ onViewAll }) {
         <div className="p-3 grid grid-cols-2 gap-2">
           {offers.map(p => {
             const disc = calcDiscount(p.regular_price, p.sale_price);
+            const qty = cartQtyMap[p.woo_id] || 0;
             return (
               <div key={p.woo_id} className="rounded-xl border border-orange-100 overflow-hidden bg-orange-50">
                 <div className="relative aspect-square bg-gray-100">
@@ -80,12 +106,38 @@ export default function OffersPopup({ onViewAll }) {
                       -{disc}%
                     </span>
                   )}
+                  {qty > 0 && (
+                    <span className="absolute top-1.5 right-1.5 bg-brand-red text-white text-[10px] font-bold w-5 h-5 rounded-full flex items-center justify-center shadow">
+                      {qty}
+                    </span>
+                  )}
                 </div>
                 <div className="p-2">
                   <p className="text-xs text-gray-700 font-medium leading-tight line-clamp-2">{p.name}</p>
                   <div className="mt-1 flex flex-col">
                     <span className="text-[11px] text-gray-400 line-through">{fmt(p.regular_price)}</span>
                     <span className="text-sm font-bold text-orange-600">{fmt(p.sale_price || p.price)}</span>
+                  </div>
+                  {/* Stepper / Add button */}
+                  <div className="mt-1.5">
+                    {qty > 0 ? (
+                      <div className="flex items-center justify-between">
+                        <button onClick={() => handleDecrement(p)}
+                          className="w-7 h-7 rounded-full bg-gray-200 hover:bg-gray-300 flex items-center justify-center">
+                          <Minus className="w-3.5 h-3.5 text-gray-700" />
+                        </button>
+                        <span className="text-sm font-bold text-gray-900">{qty}</span>
+                        <button onClick={() => handleAdd(p)}
+                          className="w-7 h-7 rounded-full bg-brand-red hover:bg-red-700 flex items-center justify-center text-white">
+                          <Plus className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    ) : (
+                      <button onClick={() => handleAdd(p)}
+                        className="w-full py-1.5 bg-brand-red hover:bg-red-700 text-white text-xs font-bold rounded-lg flex items-center justify-center gap-1 transition-colors">
+                        <Plus className="w-3.5 h-3.5" /> Agregar
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>
@@ -109,6 +161,14 @@ export default function OffersPopup({ onViewAll }) {
           </button>
         </div>
       </div>
+
+      {/* Toast */}
+      {toast && (
+        <div className="fixed bottom-20 left-1/2 -translate-x-1/2 z-[60] bg-gray-900 text-white px-4 py-2.5 rounded-xl shadow-lg flex items-center gap-2">
+          <Check className="w-4 h-4 text-green-400" />
+          <span className="text-sm font-medium">{toast} agregado</span>
+        </div>
+      )}
     </div>
   );
 }
