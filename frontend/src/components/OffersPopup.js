@@ -16,7 +16,7 @@ export default function OffersPopup({ onViewAll, addToCart, cart = [], onUpdateQ
       .then(data => {
         if (data && data.length > 0) {
           setTotal(data.length);
-          setOffers(data.slice(0, 4));
+          setOffers(data);
           setVisible(true);
         }
       })
@@ -88,7 +88,7 @@ export default function OffersPopup({ onViewAll, addToCart, cart = [], onUpdateQ
         </div>
 
         {/* Products grid */}
-        <div className="p-3 grid grid-cols-2 gap-2">
+        <div className="p-3 grid grid-cols-2 gap-2 max-h-[60vh] overflow-y-auto">
           {offers.map(p => {
             const disc = calcDiscount(p.regular_price, p.sale_price);
             const qty = cartQtyMap[p.woo_id] || 0;
