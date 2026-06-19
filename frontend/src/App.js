@@ -21,7 +21,16 @@ export default function App() {
     return params.has('tienda') || params.get('mode') === 'tienda';
   }, []);
 
-  const [cart, setCart] = useState([]);
+  const [cart, setCart] = useState(() => {
+    try {
+      const saved = localStorage.getItem('mercalo-cart');
+      return saved ? JSON.parse(saved) : [];
+    } catch { return []; }
+  });
+
+  useEffect(() => {
+    try { localStorage.setItem('mercalo-cart', JSON.stringify(cart)); } catch {}
+  }, [cart]);
   const [syncStatus, setSyncStatus] = useState({ total: 0, syncing: false, syncInterval: 10 });
   const [categories, setCategories] = useState([]);
   const [variationProduct, setVariationProduct] = useState(null);
