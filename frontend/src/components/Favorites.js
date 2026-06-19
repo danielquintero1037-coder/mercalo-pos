@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { Heart, Plus, Loader2, Check } from 'lucide-react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { Heart, Plus, Loader2, Check, ChevronLeft, ChevronRight } from 'lucide-react';
 
 const API = process.env.REACT_APP_BACKEND_URL || '';
 
@@ -7,6 +7,7 @@ export default function Favorites({ phone, addToCart, cart = [] }) {
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(false);
   const [toast, setToast] = useState(null);
+  const favRef = useRef(null);
 
   const cartQtyMap = useMemo(() => {
     const map = {};
@@ -57,7 +58,12 @@ export default function Favorites({ phone, addToCart, cart = [] }) {
       ) : products.length === 0 ? (
         <p className="text-xs text-gray-400 py-1">Aún no tienes compras con este número. ¡Haz tu primer pedido!</p>
       ) : (
-        <div className="flex gap-1.5 md:gap-2 overflow-x-auto no-scrollbar pb-1" data-testid="favorites-list">
+        <div className="relative group/fav">
+        <button onClick={() => { const el = favRef.current; if(el) el.scrollBy({left: -200, behavior: 'smooth'}); }}
+          className="hidden md:flex absolute left-0 top-0 bottom-0 z-10 w-8 bg-gradient-to-r from-white to-transparent items-center justify-center opacity-0 group-hover/fav:opacity-100 transition-opacity">
+          <ChevronLeft className="w-5 h-5 text-gray-600" />
+        </button>
+        <div ref={favRef} className="flex gap-1.5 md:gap-2 overflow-x-auto no-scrollbar pb-1 scroll-smooth" data-testid="favorites-list">
           {products.map(product => {
             const qty = cartQtyMap[product.woo_id] || 0;
             return (
@@ -97,6 +103,11 @@ export default function Favorites({ phone, addToCart, cart = [] }) {
               </button>
             );
           })}
+        </div>
+        <button onClick={() => { const el = favRef.current; if(el) el.scrollBy({left: 200, behavior: 'smooth'}); }}
+          className="hidden md:flex absolute right-0 top-0 bottom-0 z-10 w-8 bg-gradient-to-l from-white to-transparent items-center justify-center opacity-0 group-hover/fav:opacity-100 transition-opacity">
+          <ChevronRight className="w-5 h-5 text-gray-600" />
+        </button>
         </div>
       )}
 
