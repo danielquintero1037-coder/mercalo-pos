@@ -121,6 +121,7 @@ def product_to_doc(p):
         "product_type": p.get("type", "simple"),
         "attributes": attributes,
         "wpp": wpp_meta if wpp_meta.get("enabled") else None,
+        "short_description": p.get("short_description", ""),
     }
 
 
