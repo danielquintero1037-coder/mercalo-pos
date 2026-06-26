@@ -125,7 +125,9 @@ export default function TopSellers({ addToCart, categories, children }) {
                     <Plus className="w-6 h-6 text-white opacity-0 group-hover:opacity-100 transition-opacity drop-shadow-lg" />
                   </div>
                   {hasPromo && (
-                    <span className="absolute top-0.5 left-0.5 bg-orange-500 text-white text-[8px] md:text-[9px] font-bold px-1.5 py-0.5 rounded shadow-sm" data-testid={`promo-badge-${product.woo_id}`}>OFERTA</span>
+                    <span className="absolute top-0.5 left-0.5 bg-orange-500 text-white text-[8px] md:text-[9px] font-bold px-1.5 py-0.5 rounded shadow-sm" data-testid={`promo-badge-${product.woo_id}`}>
+                      {product.short_description?.startsWith('Lleva') ? product.short_description : 'OFERTA'}
+                    </span>
                   )}
                   {product.product_type === 'variable' && (
                     <span className="absolute top-0.5 right-0.5 bg-amber-500 text-white text-[9px] font-bold px-1 rounded">VAR</span>
