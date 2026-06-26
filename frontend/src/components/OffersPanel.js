@@ -94,9 +94,21 @@ export default function OffersPanel({ onClose, addToCart, cart = [], onUpdateQty
                         className="w-full h-full object-cover"
                         loading="lazy"
                       />
-                      <span className="absolute top-1 left-1 bg-orange-500 text-white text-[10px] font-bold px-2 py-0.5 rounded shadow" data-testid={`offer-badge-${product.woo_id}`}>
-                        -{discount}%
-                      </span>
+                      {(() => {
+                        const cm = product.short_description?.match(/^combo:(\d+):(\d+)/);
+                        if (cm) {
+                          const q = cm[1], price = parseInt(cm[2]).toLocaleString('es-CO');
+                          return (
+                            <>
+                              <span className="absolute top-1 left-1 bg-brand-red text-white text-xs font-black w-7 h-7 rounded-full flex items-center justify-center shadow-lg z-10">{q}x</span>
+                              <span className="absolute bottom-0 left-0 right-0 bg-brand-red/90 text-white text-[9px] font-bold py-0.5 text-center">Lleva {q} x ${price}</span>
+                            </>
+                          );
+                        }
+                        return discount > 0 ? (
+                          <span className="absolute top-1 left-1 bg-orange-500 text-white text-[10px] font-bold px-2 py-0.5 rounded shadow" data-testid={`offer-badge-${product.woo_id}`}>-{discount}%</span>
+                        ) : null;
+                      })()}
                       {qty > 0 && (
                         <span className="absolute top-1 right-1 bg-brand-red text-white text-[10px] font-bold w-5 h-5 rounded-full flex items-center justify-center shadow">
                           {qty}
@@ -105,8 +117,19 @@ export default function OffersPanel({ onClose, addToCart, cart = [], onUpdateQty
                     </div>
                     <p className="text-xs font-medium text-gray-800 leading-tight line-clamp-2 h-8">{product.name}</p>
                     <div className="mt-1">
-                      <span className="text-[10px] text-gray-400 line-through">{formatPrice(product.regular_price)}</span>
-                      <span className="text-sm font-bold text-orange-600 ml-1">{formatPrice(product.sale_price || product.price)}</span>
+                      {(() => {
+                        const cm = product.short_description?.match(/^combo:(\d+):(\d+)/);
+                        if (cm) {
+                          const price = parseInt(cm[2]).toLocaleString('es-CO');
+                          return <span className="text-sm font-bold text-brand-red">Lleva {cm[1]} x ${price}</span>;
+                        }
+                        return (
+                          <>
+                            <span className="text-[10px] text-gray-400 line-through">{formatPrice(product.regular_price)}</span>
+                            <span className="text-sm font-bold text-orange-600 ml-1">{formatPrice(product.sale_price || product.price)}</span>
+                          </>
+                        );
+                      })()}
                     </div>
                     {/* Stepper / Add button */}
                     <div className="mt-1.5">
