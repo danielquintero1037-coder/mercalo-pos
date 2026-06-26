@@ -308,10 +308,10 @@ async def get_offers(limit: int = Query(50, le=100)):
     db = get_db()
     pipeline = [
         {"$match": {
-            "on_sale": True,
             "$or": [
-                {"sale_price": {"$nin": ["", None]}},
-                {"product_type": "variable"},
+                {"on_sale": True, "sale_price": {"$nin": ["", None]}},
+                {"on_sale": True, "product_type": "variable"},
+                {"short_description": {"$regex": "^combo:"}},
             ],
         }},
         {"$sort": {"total_sales": -1}},
