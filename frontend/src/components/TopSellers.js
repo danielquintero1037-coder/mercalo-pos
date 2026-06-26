@@ -124,22 +124,22 @@ export default function TopSellers({ addToCart, categories, children }) {
                   <div className="absolute inset-0 bg-brand-red/0 group-hover:bg-brand-red/10 transition-colors flex items-center justify-center">
                     <Plus className="w-6 h-6 text-white opacity-0 group-hover:opacity-100 transition-opacity drop-shadow-lg" />
                   </div>
-                  {hasPromo && (() => {
-                    const isCombo = product.short_description?.startsWith('Lleva');
-                    const comboMatch = isCombo && product.short_description.match(/Lleva (\d+) por (.+)/);
-                    const comboQty = comboMatch ? comboMatch[1] : null;
-                    const comboPrice = comboMatch ? comboMatch[2] : null;
-                    return isCombo && comboQty ? (
+                  {hasPromo && (
+                    <span className="absolute top-0.5 left-0.5 bg-orange-500 text-white text-[8px] md:text-[9px] font-bold px-1.5 py-0.5 rounded shadow-sm" data-testid={`promo-badge-${product.woo_id}`}>OFERTA</span>
+                  )}
+                  {(() => {
+                    const cm = product.short_description?.match(/^combo:(\d+):(\d+)/);
+                    if (!cm) return null;
+                    const q = cm[1], price = parseInt(cm[2]).toLocaleString('es-CO');
+                    return (
                       <>
                         <span className="absolute top-0.5 left-0.5 bg-brand-red text-white text-[11px] md:text-xs font-black w-7 h-7 md:w-8 md:h-8 rounded-full flex items-center justify-center shadow-lg z-10">
-                          {comboQty}x
+                          {q}x
                         </span>
                         <span className="absolute bottom-0 left-0 right-0 bg-brand-red/90 text-white text-[8px] md:text-[9px] font-bold py-0.5 text-center">
-                          {comboQty}x {comboPrice}
+                          Lleva {q} x ${price}
                         </span>
                       </>
-                    ) : (
-                      <span className="absolute top-0.5 left-0.5 bg-orange-500 text-white text-[8px] md:text-[9px] font-bold px-1.5 py-0.5 rounded shadow-sm" data-testid={`promo-badge-${product.woo_id}`}>OFERTA</span>
                     );
                   })()}
                   {product.product_type === 'variable' && (

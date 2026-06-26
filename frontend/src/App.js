@@ -124,7 +124,18 @@ export default function App() {
   const clearCart = useCallback(() => setCart([]), []);
 
   const totalItems = cart.reduce((sum, item) => sum + item.qty, 0);
-  const totalPrice = cart.reduce((sum, item) => sum + parseInt(item.price || '0') * item.qty, 0);
+  const totalPrice = cart.reduce((sum, item) => {
+    const comboMatch = item.short_description?.match(/^combo:(\d+):(\d+)/);
+    if (comboMatch) {
+      const comboQty = parseInt(comboMatch[1]);
+      const comboPrice = parseInt(comboMatch[2]);
+      const unitPrice = parseInt(item.price || '0');
+      const combos = Math.floor(item.qty / comboQty);
+      const resto = item.qty % comboQty;
+      return sum + (combos * comboPrice) + (resto * unitPrice);
+    }
+    return sum + parseInt(item.price || '0') * item.qty;
+  }, 0);
 
   const shareLink = `${window.location.origin}/?tienda`;
 
