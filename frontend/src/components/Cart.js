@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { ShoppingCart, Plus, Minus, Trash2, XCircle, User, Phone, MapPin, FileText, Check, AlertCircle, Headphones, MessageSquare, Loader2, X, Mail, ArrowLeft } from 'lucide-react';
+import { ShoppingCart, Plus, Minus, Trash2, XCircle, User, Phone, MapPin, FileText, Check, AlertCircle, Headphones, MessageSquare, Loader2, X, Mail, ArrowLeft, Info } from 'lucide-react';
+import { getStoreStatus, STORE_CLOSED_MESSAGE } from '../utils/storeHours';
 
 const API = process.env.REACT_APP_BACKEND_URL || '';
 
@@ -18,6 +19,7 @@ export default function Cart({ items, updateQty, removeItem, clearCart, updateIt
   const [shippingZones, setShippingZones] = useState([]);
   const [selectedShipping, setSelectedShipping] = useState(null);
   const phoneSearchRef = useRef(null);
+  const submittingRef = useRef(false);
 
   const SEDES = [
     { id: 'señorial', label: 'Señorial', whatsapp: '3185309822' },
@@ -120,6 +122,7 @@ export default function Cart({ items, updateQty, removeItem, clearCart, updateIt
   };
 
   const [validationErrors, setValidationErrors] = useState([]);
+  const [showClosedConfirm, setShowClosedConfirm] = useState(false);
 
   const handleSubmitOrder = async () => {
     // Validate required fields
@@ -138,6 +141,18 @@ export default function Cart({ items, updateQty, removeItem, clearCart, updateIt
       return;
     }
     setValidationErrors([]);
+
+    if (!getStoreStatus().isOpen) {
+      setShowClosedConfirm(true);
+      return;
+    }
+
+    await submitOrder();
+  };
+
+  const submitOrder = async () => {
+    if (submittingRef.current) return;
+    submittingRef.current = true;
     setSubmitting(true);
     setResult(null);
     try {
@@ -186,6 +201,7 @@ export default function Cart({ items, updateQty, removeItem, clearCart, updateIt
     } catch (err) {
       setResult({ success: false, error: 'Error de conexión' });
     }
+    submittingRef.current = false;
     setSubmitting(false);
   };
 
@@ -517,6 +533,42 @@ export default function Cart({ items, updateQty, removeItem, clearCart, updateIt
               </button>
             </div>
           )}
+        </div>
+      )}
+
+      {submitting && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4" data-testid="submitting-overlay">
+          <div className="bg-white rounded-2xl max-w-xs w-full p-6 text-center shadow-xl">
+            <Loader2 className="w-8 h-8 mx-auto mb-3 text-brand-red animate-spin" />
+            <p className="text-sm font-semibold text-gray-700">Tu pedido se está procesando...</p>
+            <p className="text-xs text-gray-400 mt-1">No cierres ni presiones de nuevo</p>
+          </div>
+        </div>
+      )}
+
+      {showClosedConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4" data-testid="store-closed-modal">
+          <div className="bg-white rounded-2xl max-w-sm w-full p-6 text-center shadow-xl">
+            <div className="mx-auto mb-3 w-10 h-10 rounded-full bg-brand-red flex items-center justify-center">
+              <Info className="w-5 h-5 text-white" />
+            </div>
+            <h3 className="text-lg font-bold text-gray-800 mb-2">Aviso</h3>
+            <p className="text-sm text-gray-600 mb-5">{STORE_CLOSED_MESSAGE}</p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => { setShowClosedConfirm(false); submitOrder(); }}
+                className="flex-1 py-2.5 rounded-full bg-blue-900 hover:bg-blue-950 text-white font-semibold text-sm"
+                data-testid="store-closed-yes-btn">
+                Si
+              </button>
+              <button
+                onClick={() => setShowClosedConfirm(false)}
+                className="flex-1 py-2.5 rounded-full bg-blue-900 hover:bg-blue-950 text-white font-semibold text-sm"
+                data-testid="store-closed-no-btn">
+                No
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>
