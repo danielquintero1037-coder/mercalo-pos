@@ -20,7 +20,7 @@ function WhatsAppNotifyBtn({ orderId }) {
   const handleClick = async () => {
     setLoading(true);
     try {
-      const r = await fetch(`${API}/api/orders/whatsapp-link/${orderId}`);
+      const r = await fetch(`${API}/api/orders/whatsapp-link/${orderId}`, { headers: authHeaders() });
       const data = await r.json();
       if (data.whatsapp_url) window.open(data.whatsapp_url, '_blank');
     } catch {}

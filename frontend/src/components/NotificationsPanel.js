@@ -2,6 +2,11 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Bell, X, Loader2 } from 'lucide-react';
 
 const API = process.env.REACT_APP_BACKEND_URL || '';
+const TOKEN_KEY = 'mercalo_ops_token';
+const authHeaders = () => {
+  const t = localStorage.getItem(TOKEN_KEY) || '';
+  return t ? { Authorization: `Bearer ${t}` } : {};
+};
 
 const STATUS_LABELS = {
   'pending': 'Pendiente', 'on-hold': 'En espera', 'processing': 'Procesando',
@@ -29,7 +34,8 @@ export function NotificationBell() {
 
   const fetchNotifications = useCallback(async () => {
     try {
-      const r = await fetch(`${API}/api/notifications`);
+      const r = await fetch(`${API}/api/notifications`, { headers: authHeaders() });
+      if (r.status === 401) { setNotifications([]); return; }
       const data = await r.json();
       setNotifications(data);
     } catch {}
@@ -44,14 +50,14 @@ export function NotificationBell() {
 
   const markSeen = async () => {
     try {
-      await fetch(`${API}/api/notifications/mark-seen`, { method: 'POST' });
+      await fetch(`${API}/api/notifications/mark-seen`, { method: 'POST', headers: authHeaders() });
       setNotifications([]);
     } catch {}
   };
 
   const handleOpenWA = async (orderId) => {
     try {
-      const r = await fetch(`${API}/api/orders/whatsapp-link/${orderId}`);
+      const r = await fetch(`${API}/api/orders/whatsapp-link/${orderId}`, { headers: authHeaders() });
       const data = await r.json();
       if (data.whatsapp_url) window.open(data.whatsapp_url, '_blank');
     } catch {}

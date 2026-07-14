@@ -297,7 +297,8 @@ async def health():
 
 
 @app.get(f"{P}/products/sync")
-async def sync_products():
+async def sync_products(request: Request):
+    rate_limit(request, "products-sync", max_requests=5, window_seconds=60)
     db = get_db()
     synced, total = await run_full_sync(db)
     count = await db.products.count_documents({})
@@ -305,7 +306,8 @@ async def sync_products():
 
 
 @app.get(f"{P}/products/sync-variations")
-async def sync_variations():
+async def sync_variations(request: Request):
+    rate_limit(request, "products-sync-variations", max_requests=5, window_seconds=60)
     db = get_db()
     synced, var_count = await run_variations_sync(db)
     return {"synced_variations": synced, "variable_products": var_count}
@@ -320,11 +322,12 @@ async def sync_status():
 
 
 @app.get(f"{P}/products/search")
-async def search_products(q: str = Query("", min_length=0), limit: int = Query(10, le=20)):
+async def search_products(request: Request, q: str = Query("", min_length=0), limit: int = Query(10, le=20)):
+    rate_limit(request, "products-search", max_requests=120, window_seconds=60)
     db = get_db()
     if not q.strip():
         return []
-    regex_pattern = ".*".join(q.strip().lower().split())
+    regex_pattern = ".*".join(re.escape(w) for w in q.strip().lower().split())
     pipeline = [
         {"$match": {"search_text": {"$regex": regex_pattern, "$options": "i"}}},
         {"$sort": {"total_sales": -1}}, {"$limit": limit},
@@ -334,11 +337,12 @@ async def search_products(q: str = Query("", min_length=0), limit: int = Query(1
 
 
 @app.get(f"{P}/products/suggested")
-async def suggested_products(q: str = Query("", min_length=0)):
+async def suggested_products(request: Request, q: str = Query("", min_length=0)):
+    rate_limit(request, "products-suggested", max_requests=120, window_seconds=60)
     db = get_db()
     if not q.strip():
         return []
-    regex_pattern = ".*".join(q.strip().lower().split())
+    regex_pattern = ".*".join(re.escape(w) for w in q.strip().lower().split())
     pipeline = [
         {"$match": {"search_text": {"$regex": regex_pattern, "$options": "i"}}},
         {"$sort": {"total_sales": -1}}, {"$limit": 5},
@@ -388,9 +392,10 @@ async def get_offers(limit: int = Query(50, le=100)):
 @app.post(f"{P}/products/by-ids")
 async def products_by_ids(request: Request):
     """Get multiple products by their woo_ids with current prices."""
+    rate_limit(request, "products-by-ids", max_requests=60, window_seconds=60)
     db = get_db()
     body = await request.json()
-    ids = body.get("ids", [])
+    ids = (body.get("ids") or [])[:100]
     if not ids:
         return []
     products = await db.products.find(
@@ -445,8 +450,9 @@ async def get_categories():
 
 
 @app.get(f"{P}/categories/sync")
-async def sync_categories():
+async def sync_categories(request: Request):
     """Sync categories from WooCommerce to get parent info."""
+    rate_limit(request, "categories-sync", max_requests=5, window_seconds=60)
     db = get_db()
     all_cats = []
     page = 1
@@ -490,8 +496,9 @@ async def get_shipping_zones():
 
 
 @app.get(f"{P}/shipping/sync")
-async def sync_shipping():
+async def sync_shipping(request: Request):
     """Force sync shipping zones from WooCommerce."""
+    rate_limit(request, "shipping-sync", max_requests=5, window_seconds=60)
     db = get_db()
     return await sync_shipping_from_wc(db)
 
@@ -544,20 +551,25 @@ async def sync_shipping_from_wc(db):
 
 # ─── Webhook: WooCommerce Product Updates ───
 
+def verify_wc_signature(body: bytes, signature: str) -> bool:
+    """Verifica la firma HMAC que manda WooCommerce en sus webhooks.
+    Si no llega firma, se deja pasar (algunos webhooks pueden no tener secreto configurado en WC)."""
+    if not signature:
+        return True
+    import base64
+    expected = hmac.new(WC_WEBHOOK_SECRET.encode(), body, hashlib.sha256).digest()
+    expected_b64 = base64.b64encode(expected).decode()
+    return hmac.compare_digest(signature, expected_b64)
+
+
 @app.post(f"{P}/webhooks/product-updated")
 async def webhook_product_updated(request: Request):
     """Webhook called by WooCommerce when a product is created/updated/deleted."""
     db = get_db()
     body = await request.body()
 
-    # Verify webhook signature
-    signature = request.headers.get("x-wc-webhook-signature", "")
-    if signature:
-        expected = hmac.new(WC_WEBHOOK_SECRET.encode(), body, hashlib.sha256).digest()
-        import base64
-        expected_b64 = base64.b64encode(expected).decode()
-        if not hmac.compare_digest(signature, expected_b64):
-            return {"error": "Invalid signature"}, 401
+    if not verify_wc_signature(body, request.headers.get("x-wc-webhook-signature", "")):
+        return {"error": "Invalid signature"}, 401
 
     try:
         data = await request.json()
@@ -1086,6 +1098,9 @@ STATUS_LABELS = {
 @app.post(f"{P}/webhook/order-updated")
 async def webhook_order_updated(request: Request):
     """Webhook from WooCommerce when order status changes."""
+    body = await request.body()
+    if not verify_wc_signature(body, request.headers.get("x-wc-webhook-signature", "")):
+        return {"error": "Invalid signature"}, 401
     try:
         data = await request.json()
         wc_id = data.get("id")
@@ -1117,7 +1132,7 @@ async def webhook_order_updated(request: Request):
         return {"ok": False, "error": str(e)}
 
 
-@app.get(f"{P}/notifications")
+@app.get(f"{P}/notifications", dependencies=[Depends(require_session)])
 async def get_notifications(limit: int = Query(20)):
     """Get unseen notifications for POS operators."""
     db = get_db()
@@ -1127,7 +1142,7 @@ async def get_notifications(limit: int = Query(20)):
     return notifs
 
 
-@app.post(f"{P}/notifications/mark-seen")
+@app.post(f"{P}/notifications/mark-seen", dependencies=[Depends(require_session)])
 async def mark_notifications_seen():
     """Mark all notifications as seen."""
     db = get_db()
@@ -1135,7 +1150,7 @@ async def mark_notifications_seen():
     return {"ok": True}
 
 
-@app.get(f"{P}/orders/whatsapp-link/{{wc_order_id}}")
+@app.get(f"{P}/orders/whatsapp-link/{{wc_order_id}}", dependencies=[Depends(require_session)])
 async def generate_whatsapp_link(wc_order_id: int):
     """Generate a WhatsApp link to notify customer about order status change."""
     db = get_db()
