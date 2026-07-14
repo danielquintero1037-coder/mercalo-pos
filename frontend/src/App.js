@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { ClipboardList, ShoppingCart, Share2, Package, Phone, Tag } from 'lucide-react';
+import { ClipboardList, ShoppingCart, Share2, Package, Phone, Tag, Lock, Pencil } from 'lucide-react';
 import SearchBar from './components/SearchBar';
 import TopSellers from './components/TopSellers';
 import Cart from './components/Cart';
@@ -38,7 +38,31 @@ export default function App() {
   const [showMyOrders, setShowMyOrders] = useState(false);
   const [showOffers, setShowOffers] = useState(false);
   const [mobileCartOpen, setMobileCartOpen] = useState(false);
-  const [customerPhone, setCustomerPhone] = useState('');
+  const [customerPhone, setCustomerPhone] = useState(() => {
+    try { return localStorage.getItem('mercalo-customer-phone') || ''; } catch { return ''; }
+  });
+  // Una vez el numero queda guardado en este dispositivo, se bloquea para escritura
+  // (evita que alguien borre y escriba el numero de otra persona para ver sus datos).
+  const [phoneLocked, setPhoneLocked] = useState(() => {
+    try { return (localStorage.getItem('mercalo-customer-phone') || '').length >= 7; } catch { return false; }
+  });
+
+  useEffect(() => {
+    try {
+      if (customerPhone.length >= 7) {
+        localStorage.setItem('mercalo-customer-phone', customerPhone);
+        setPhoneLocked(true);
+      }
+    } catch {}
+  }, [customerPhone]);
+
+  const handleChangePhone = () => {
+    if (window.confirm('¿Vas a cambiar el número? Asegúrate de que sea el tuyo, ya que vas a ver los pedidos y favoritos asociados a él.')) {
+      try { localStorage.removeItem('mercalo-customer-phone'); } catch {}
+      setCustomerPhone('');
+      setPhoneLocked(false);
+    }
+  };
 
   useEffect(() => {
     fetch(`${API}/api/products/sync-status`)
@@ -202,16 +226,24 @@ export default function App() {
           {isCustomerMode && (
             <div className="px-2 md:px-4 pt-2 pb-1 shrink-0" data-testid="customer-phone-bar">
               <div className="relative">
-                <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                {phoneLocked ? <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" /> : <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />}
                 <input
                   type="tel"
                   value={customerPhone}
-                  onChange={e => setCustomerPhone(e.target.value)}
+                  onChange={e => !phoneLocked && setCustomerPhone(e.target.value)}
+                  readOnly={phoneLocked}
                   placeholder="Ingresa tu teléfono para ver tus favoritos..."
-                  className="w-full pl-9 pr-4 py-2.5 border-2 border-gray-200 rounded-lg text-sm focus:outline-none focus:border-brand-red transition-colors"
+                  className={`w-full pl-9 pr-9 py-2.5 border-2 rounded-lg text-sm focus:outline-none transition-colors ${phoneLocked ? 'border-gray-200 bg-gray-50 text-gray-600' : 'border-gray-200 focus:border-brand-red'}`}
                   data-testid="customer-phone-input"
                   autoComplete="off"
                 />
+                {phoneLocked && (
+                  <button onClick={handleChangePhone} title="Cambiar número"
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full hover:bg-gray-200 flex items-center justify-center"
+                    data-testid="change-phone-btn">
+                    <Pencil className="w-3.5 h-3.5 text-gray-400" />
+                  </button>
+                )}
               </div>
             </div>
           )}
@@ -263,7 +295,7 @@ export default function App() {
         <VariationModal product={variationProduct} onAdd={addVariationToCart} onClose={() => setVariationProduct(null)} />
       )}
       {showOrders && !isCustomerMode && <OrdersPanel onClose={() => setShowOrders(false)} />}
-      {showMyOrders && isCustomerMode && <MyOrders onClose={() => setShowMyOrders(false)} addToCart={addDirectToCart} customerPhone={customerPhone} />}
+      {showMyOrders && isCustomerMode && <MyOrders onClose={() => setShowMyOrders(false)} addToCart={addDirectToCart} customerPhone={customerPhone} phoneLocked={phoneLocked} onCustomerPhone={setCustomerPhone} />}
       {showOffers && <OffersPanel onClose={() => setShowOffers(false)} addToCart={addToCart} cart={cart} onUpdateQty={updateQty} />}
       {isCustomerMode && <OffersPopup onViewAll={() => setShowOffers(true)} addToCart={addToCart} cart={cart} onUpdateQty={updateQty} />}
     </div>

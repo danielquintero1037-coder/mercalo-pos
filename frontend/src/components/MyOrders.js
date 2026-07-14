@@ -53,7 +53,7 @@ function StatusTracker({ status }) {
   );
 }
 
-export default function MyOrders({ onClose, addToCart, customerPhone }) {
+export default function MyOrders({ onClose, addToCart, customerPhone, phoneLocked, onCustomerPhone }) {
   const [phone, setPhone] = useState(customerPhone || '');
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -75,6 +75,13 @@ export default function MyOrders({ onClose, addToCart, customerPhone }) {
     }
     setLoading(false);
   }, [phone]);
+
+  // Primera vez: guarda el numero a nivel de la app (queda bloqueado despues de esto)
+  const handleFirstSearch = () => {
+    if (phone.length < 7) return;
+    if (onCustomerPhone) onCustomerPhone(phone);
+    searchOrders(phone);
+  };
 
   // Auto-search if customerPhone provided
   useEffect(() => {
@@ -159,7 +166,9 @@ export default function MyOrders({ onClose, addToCart, customerPhone }) {
 
         {/* Phone search */}
         <div className="px-4 py-3 border-b">
-          <label className="text-xs font-semibold text-gray-600 uppercase mb-1 block">Ingresa tu teléfono</label>
+          <label className="text-xs font-semibold text-gray-600 uppercase mb-1 block">
+            {phoneLocked ? 'Tu teléfono' : 'Ingresa tu teléfono'}
+          </label>
           <div className="flex gap-2">
             <div className="flex-1 relative">
               <Phone className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
@@ -167,18 +176,21 @@ export default function MyOrders({ onClose, addToCart, customerPhone }) {
                 type="tel"
                 placeholder="Tu número de teléfono"
                 value={phone}
-                onChange={e => setPhone(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && searchOrders()}
-                className="w-full pl-8 pr-3 py-2.5 border-2 border-gray-200 rounded-lg text-sm focus:outline-none focus:border-brand-red"
+                readOnly={phoneLocked}
+                onChange={e => !phoneLocked && setPhone(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && !phoneLocked && handleFirstSearch()}
+                className={`w-full pl-8 pr-3 py-2.5 border-2 rounded-lg text-sm focus:outline-none ${phoneLocked ? 'border-gray-200 bg-gray-50 text-gray-600' : 'border-gray-200 focus:border-brand-red'}`}
                 data-testid="my-orders-phone"
               />
             </div>
-            <button onClick={() => searchOrders()} disabled={phone.length < 7 || loading}
-              className="px-4 py-2.5 bg-brand-red text-white rounded-lg font-medium text-sm disabled:opacity-50 flex items-center gap-1.5"
-              data-testid="my-orders-search-btn">
-              {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
-              Buscar
-            </button>
+            {!phoneLocked && (
+              <button onClick={handleFirstSearch} disabled={phone.length < 7 || loading}
+                className="px-4 py-2.5 bg-brand-red text-white rounded-lg font-medium text-sm disabled:opacity-50 flex items-center gap-1.5"
+                data-testid="my-orders-search-btn">
+                {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
+                Buscar
+              </button>
+            )}
           </div>
         </div>
 
