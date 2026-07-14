@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { ClipboardList, X, Filter, Phone, User, Calendar, DollarSign, ChevronDown, ChevronUp, MapPin, Loader2 } from 'lucide-react';
 
 const API = process.env.REACT_APP_BACKEND_URL || '';
+const ADMIN_HEADERS = process.env.REACT_APP_ADMIN_KEY ? { 'X-Admin-Key': process.env.REACT_APP_ADMIN_KEY } : {};
 
 const SEDE_LABELS = { 'señorial': 'Señorial', 'la_paz': 'La Paz' };
 const STATUS_LABELS = {
@@ -52,9 +53,9 @@ export default function OrdersPanel({ onClose }) {
       params.set('limit', '50');
 
       const [ordersRes, opsRes, statsRes] = await Promise.all([
-        fetch(`${API}/api/orders/recent?${params}`).then(r => r.json()),
-        fetch(`${API}/api/orders/operators`).then(r => r.json()),
-        fetch(`${API}/api/orders/stats?date=${filterDate}`).then(r => r.json()),
+        fetch(`${API}/api/orders/recent?${params}`, { headers: ADMIN_HEADERS }).then(r => r.json()),
+        fetch(`${API}/api/orders/operators`, { headers: ADMIN_HEADERS }).then(r => r.json()),
+        fetch(`${API}/api/orders/stats?date=${filterDate}`, { headers: ADMIN_HEADERS }).then(r => r.json()),
       ]);
       setOrders(ordersRes);
       setOperators(opsRes);

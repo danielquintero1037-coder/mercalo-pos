@@ -1,13 +1,16 @@
 import os
+import re
+import time
 import hmac
 import hashlib
 import httpx
 import asyncio
 import logging
+from collections import defaultdict, deque
 from urllib.parse import quote
 from datetime import datetime, timezone
 from dotenv import load_dotenv
-from fastapi import FastAPI, Query, Request
+from fastapi import FastAPI, Query, Request, Header, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
@@ -27,8 +30,40 @@ WC_KEY = os.environ.get("WC_CONSUMER_KEY", "")
 WC_SECRET = os.environ.get("WC_CONSUMER_SECRET", "")
 WC_WEBHOOK_SECRET = os.environ.get("WC_WEBHOOK_SECRET", "mercalo-pos-webhook-2026")
 SYNC_INTERVAL_MINUTES = int(os.environ.get("SYNC_INTERVAL_MINUTES", "10"))
+# Si se configura, protege /orders/recent, /orders/stats y /orders/operators.
+# Si queda vacio (por defecto), esos endpoints siguen funcionando igual que hoy.
+ADMIN_API_KEY = os.environ.get("ADMIN_API_KEY", "")
 
 P = "/api"
+
+
+# ─── Rate limiting simple (sin dependencias externas) ───
+
+_rate_buckets = defaultdict(deque)
+
+
+def rate_limit(request: Request, bucket: str, max_requests: int = 30, window_seconds: int = 60):
+    """Limite simple por IP + endpoint usando ventana deslizante en memoria."""
+    ip = request.client.host if request.client else "unknown"
+    key = f"{bucket}:{ip}"
+    now = time.monotonic()
+    q = _rate_buckets[key]
+    while q and now - q[0] > window_seconds:
+        q.popleft()
+    if len(q) >= max_requests:
+        raise HTTPException(status_code=429, detail="Demasiadas solicitudes, intenta de nuevo en un momento")
+    q.append(now)
+
+
+def require_admin_key(x_admin_key: str = Header(default="")):
+    """Si ADMIN_API_KEY esta configurado, exige que coincida. Si no esta configurado, no bloquea nada."""
+    if ADMIN_API_KEY and x_admin_key != ADMIN_API_KEY:
+        raise HTTPException(status_code=401, detail="No autorizado")
+
+
+def phone_regex_prefix(phone: str) -> str:
+    """Escapa caracteres especiales y ancla al inicio para evitar inyeccion/ReDoS en Mongo regex."""
+    return f"^{re.escape(phone.strip())}"
 
 
 # ─── Background Sync ───
@@ -74,7 +109,14 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(lifespan=lifespan)
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+_default_origins = [
+    "https://mercalo-pos-production.up.railway.app",
+    "https://mercalo.co",
+    "https://www.mercalo.co",
+]
+_extra_origin = os.environ.get("EXTRA_ALLOWED_ORIGIN", "")
+ALLOWED_ORIGINS = _default_origins + ([_extra_origin] if _extra_origin else [])
+app.add_middleware(CORSMiddleware, allow_origins=ALLOWED_ORIGINS, allow_methods=["*"], allow_headers=["*"])
 
 
 def get_db():
@@ -532,17 +574,18 @@ async def get_sync_log(limit: int = Query(20, le=100)):
 
 
 @app.get(f"{P}/customers/search")
-async def search_customer(phone: str = Query("", min_length=3), local_only: bool = Query(False)):
+async def search_customer(request: Request, phone: str = Query("", min_length=3), local_only: bool = Query(False)):
     """Search customers by phone: first local orders (instant), then WooCommerce (slower)."""
     if not phone.strip():
         return []
+    rate_limit(request, "customers-search", max_requests=30, window_seconds=60)
     db = get_db()
     results = []
     seen_phones = set()
 
     # 1. Search local orders first (instant)
     local_orders = await db.orders.find(
-        {"customer_phone": {"$regex": phone.strip()}},
+        {"customer_phone": {"$regex": phone_regex_prefix(phone)}},
         {"_id": 0, "customer_name": 1, "customer_phone": 1, "customer_address": 1, "customer_city": 1}
     ).sort("created_at", -1).to_list(20)
 
@@ -629,16 +672,78 @@ class CreateOrderRequest(BaseModel):
 
 # ─── Order Endpoints ───
 
+def _wpp_valid_prices(wpp: dict) -> set:
+    """Precios validos por unidad para un producto de peso variable (KG/LB/UND)."""
+    try:
+        price_per_kg = float(wpp.get("price_per_kg") or 0)
+    except (TypeError, ValueError):
+        return set()
+    try:
+        avg_weight_und = float(wpp.get("avg_weight_und") or 0.2)
+    except (TypeError, ValueError):
+        avg_weight_und = 0.2
+    return {
+        round(price_per_kg),
+        round(price_per_kg * 0.453592),
+        round(price_per_kg * avg_weight_und),
+    }
+
+
+async def resolve_authoritative_price(db, product_id: int, variation_id: Optional[int], submitted_price: str) -> str:
+    """Verifica el precio enviado por el cliente contra el catalogo (evita manipulacion de precio).
+    Si no coincide con el precio real, se usa el precio del catalogo en su lugar.
+    Si el producto no esta en cache (caso raro), se confia en el precio enviado."""
+    product = await db.products.find_one(
+        {"woo_id": product_id}, {"_id": 0, "price": 1, "variations": 1, "wpp": 1}
+    )
+    if not product:
+        return submitted_price
+    try:
+        submitted = float(submitted_price)
+    except (TypeError, ValueError):
+        submitted = None
+
+    wpp = product.get("wpp")
+    if wpp:
+        valid_prices = _wpp_valid_prices(wpp)
+        if valid_prices and submitted is not None and any(abs(submitted - v) <= 1 for v in valid_prices):
+            return submitted_price
+        return str(min(valid_prices)) if valid_prices else submitted_price
+
+    if variation_id:
+        for v in product.get("variations", []) or []:
+            if v.get("variation_id") == variation_id:
+                try:
+                    real_price = float(v.get("price") or 0)
+                except (TypeError, ValueError):
+                    return submitted_price
+                if submitted is not None and abs(submitted - real_price) <= 1:
+                    return submitted_price
+                return str(real_price)
+        return submitted_price
+
+    try:
+        real_price = float(product.get("price") or 0)
+    except (TypeError, ValueError):
+        return submitted_price
+    if submitted is not None and abs(submitted - real_price) <= 1:
+        return submitted_price
+    return str(real_price)
+
+
 @app.post(f"{P}/orders/create")
-async def create_order(order: CreateOrderRequest):
+async def create_order(order: CreateOrderRequest, request: Request):
+    rate_limit(request, "orders-create", max_requests=20, window_seconds=60)
     db = get_db()
     line_items = []
+    verified_items = []
     for item in order.items:
         li = {"product_id": item.product_id, "quantity": item.quantity}
         if item.variation_id:
             li["variation_id"] = item.variation_id
-        # Override price to match POS display (prevents WC price mismatch)
-        item_total = str(round(float(item.price) * item.quantity, 2))
+        # Precio verificado contra el catalogo (evita manipulacion de precio desde el cliente)
+        verified_price = await resolve_authoritative_price(db, item.product_id, item.variation_id, item.price)
+        item_total = str(round(float(verified_price) * item.quantity, 2))
         item_subtotal = item_total
         li["subtotal"] = item_subtotal
         li["total"] = item_total
@@ -650,6 +755,7 @@ async def create_order(order: CreateOrderRequest):
         if meta:
             li["meta_data"] = meta
         line_items.append(li)
+        verified_items.append({**item.dict(), "price": verified_price})
 
     payment_titles = {"cod": "Contra entrega", "cash": "Efectivo", "transfer": "Transferencia bancaria"}
     operator = order.operator_name or "Operadora"
@@ -730,7 +836,7 @@ async def create_order(order: CreateOrderRequest):
                 "customer_name": f"{order.customer.first_name} {order.customer.last_name}".strip(),
                 "customer_address": order.customer.address_1,
                 "customer_city": order.customer.city,
-                "items": [i.dict() for i in order.items],
+                "items": verified_items,
                 "total": wc_data.get("total", "0"),
                 "shipping_cost": order.shipping_cost or 0,
                 "shipping_title": order.shipping_title or "",
@@ -756,27 +862,29 @@ async def create_order(order: CreateOrderRequest):
             return {"success": False, "error": error_msg, "status_code": resp.status_code}
 
 
-@app.get(f"{P}/orders/recent")
+@app.get(f"{P}/orders/recent", dependencies=[Depends(require_admin_key)])
 async def recent_orders(
+    request: Request,
     limit: int = Query(50, le=200),
     operator: str = Query(None),
     date: str = Query(None),
     phone: str = Query(None),
 ):
     """Recent orders with optional filters by operator, date (YYYY-MM-DD), phone."""
+    rate_limit(request, "orders-recent", max_requests=60, window_seconds=60)
     db = get_db()
     match = {}
     if operator:
-        match["operator"] = {"$regex": operator, "$options": "i"}
+        match["operator"] = {"$regex": re.escape(operator), "$options": "i"}
     if phone:
-        match["customer_phone"] = {"$regex": phone}
+        match["customer_phone"] = {"$regex": phone_regex_prefix(phone)}
     if date:
-        match["created_at"] = {"$regex": f"^{date}"}
+        match["created_at"] = {"$regex": f"^{re.escape(date)}"}
     orders = await db.orders.find(match, {"_id": 0}).sort("created_at", -1).to_list(limit)
     return orders
 
 
-@app.get(f"{P}/orders/operators")
+@app.get(f"{P}/orders/operators", dependencies=[Depends(require_admin_key)])
 async def get_operators():
     """Get distinct operators from order history."""
     db = get_db()
@@ -784,7 +892,7 @@ async def get_operators():
     return [o for o in operators if o]
 
 
-@app.get(f"{P}/orders/stats")
+@app.get(f"{P}/orders/stats", dependencies=[Depends(require_admin_key)])
 async def order_stats(date: str = Query(None)):
     """Order stats for a given date (default: today)."""
     db = get_db()
@@ -814,11 +922,12 @@ async def order_stats(date: str = Query(None)):
 # ─── Customer-facing Endpoints ───
 
 @app.get(f"{P}/customer/orders")
-async def customer_orders(phone: str = Query(..., min_length=3)):
+async def customer_orders(request: Request, phone: str = Query(..., min_length=3)):
     """Get orders for a customer by phone number, with latest WooCommerce status."""
+    rate_limit(request, "customer-orders", max_requests=30, window_seconds=60)
     db = get_db()
     orders = await db.orders.find(
-        {"customer_phone": {"$regex": phone.strip()}},
+        {"customer_phone": {"$regex": phone_regex_prefix(phone)}},
         {"_id": 0}
     ).sort("created_at", -1).to_list(50)
     return orders
@@ -853,11 +962,12 @@ async def customer_order_status(wc_order_id: int):
 
 
 @app.get(f"{P}/customer/favorites")
-async def customer_favorites(phone: str = Query(..., min_length=3), limit: int = Query(10, le=20)):
+async def customer_favorites(request: Request, phone: str = Query(..., min_length=3), limit: int = Query(10, le=20)):
     """Get favorite products from local orders, fallback to WooCommerce history."""
+    rate_limit(request, "customer-favorites", max_requests=30, window_seconds=60)
     db = get_db()
     pipeline = [
-        {"$match": {"customer_phone": {"$regex": phone.strip()}}},
+        {"$match": {"customer_phone": {"$regex": phone_regex_prefix(phone)}}},
         {"$unwind": "$items"},
         {"$group": {
             "_id": "$items.product_id",
