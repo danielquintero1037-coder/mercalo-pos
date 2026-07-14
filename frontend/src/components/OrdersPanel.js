@@ -1,8 +1,13 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { ClipboardList, X, Filter, Phone, User, Calendar, DollarSign, ChevronDown, ChevronUp, MapPin, Loader2 } from 'lucide-react';
+import { ClipboardList, X, Filter, Phone, User, Calendar, DollarSign, ChevronDown, ChevronUp, MapPin, Loader2, Lock } from 'lucide-react';
 
 const API = process.env.REACT_APP_BACKEND_URL || '';
-const ADMIN_HEADERS = process.env.REACT_APP_ADMIN_KEY ? { 'X-Admin-Key': process.env.REACT_APP_ADMIN_KEY } : {};
+const TOKEN_KEY = 'mercalo_ops_token';
+const getToken = () => localStorage.getItem(TOKEN_KEY) || '';
+const authHeaders = () => {
+  const t = getToken();
+  return t ? { Authorization: `Bearer ${t}` } : {};
+};
 
 const SEDE_LABELS = { 'señorial': 'Señorial', 'la_paz': 'La Paz' };
 const STATUS_LABELS = {
@@ -42,6 +47,10 @@ export default function OrdersPanel({ onClose }) {
   const [filterPhone, setFilterPhone] = useState('');
   const [filterDate, setFilterDate] = useState(new Date().toISOString().slice(0, 10));
   const [expanded, setExpanded] = useState(null);
+  const [needsLogin, setNeedsLogin] = useState(false);
+  const [pin, setPin] = useState('');
+  const [loginError, setLoginError] = useState('');
+  const [loggingIn, setLoggingIn] = useState(false);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -52,14 +61,21 @@ export default function OrdersPanel({ onClose }) {
       if (filterDate) params.set('date', filterDate);
       params.set('limit', '50');
 
-      const [ordersRes, opsRes, statsRes] = await Promise.all([
-        fetch(`${API}/api/orders/recent?${params}`, { headers: ADMIN_HEADERS }).then(r => r.json()),
-        fetch(`${API}/api/orders/operators`, { headers: ADMIN_HEADERS }).then(r => r.json()),
-        fetch(`${API}/api/orders/stats?date=${filterDate}`, { headers: ADMIN_HEADERS }).then(r => r.json()),
+      const [ordersR, opsR, statsR] = await Promise.all([
+        fetch(`${API}/api/orders/recent?${params}`, { headers: authHeaders() }),
+        fetch(`${API}/api/orders/operators`, { headers: authHeaders() }),
+        fetch(`${API}/api/orders/stats?date=${filterDate}`, { headers: authHeaders() }),
       ]);
-      setOrders(ordersRes);
-      setOperators(opsRes);
-      setStats(statsRes);
+      if (ordersR.status === 401 || opsR.status === 401 || statsR.status === 401) {
+        localStorage.removeItem(TOKEN_KEY);
+        setNeedsLogin(true);
+        setLoading(false);
+        return;
+      }
+      setNeedsLogin(false);
+      setOrders(await ordersR.json());
+      setOperators(await opsR.json());
+      setStats(await statsR.json());
     } catch {
       setOrders([]);
     }
@@ -67,6 +83,31 @@ export default function OrdersPanel({ onClose }) {
   }, [filterOp, filterPhone, filterDate]);
 
   useEffect(() => { loadData(); }, [loadData]);
+
+  const handleLogin = async (e) => {
+    e.preventDefault();
+    setLoggingIn(true);
+    setLoginError('');
+    try {
+      const r = await fetch(`${API}/api/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pin }),
+      });
+      const data = await r.json();
+      if (r.ok && data.token) {
+        localStorage.setItem(TOKEN_KEY, data.token);
+        setPin('');
+        setNeedsLogin(false);
+        loadData();
+      } else {
+        setLoginError(data.detail || 'PIN incorrecto');
+      }
+    } catch {
+      setLoginError('Error de conexión');
+    }
+    setLoggingIn(false);
+  };
 
   const formatPrice = (p) => `$${Math.round(parseFloat(p || 0)).toLocaleString('es-CO')}`;
   const formatTime = (ts) => {
@@ -89,6 +130,27 @@ export default function OrdersPanel({ onClose }) {
           </button>
         </div>
 
+        {needsLogin ? (
+          <form onSubmit={handleLogin} className="flex-1 flex flex-col items-center justify-center gap-3 px-6" data-testid="orders-login-form">
+            <div className="w-12 h-12 rounded-full bg-brand-red/10 flex items-center justify-center">
+              <Lock className="w-5 h-5 text-brand-red" />
+            </div>
+            <p className="text-sm font-semibold text-gray-700">Ingresa el PIN de operadora</p>
+            <input
+              type="password" inputMode="numeric" autoFocus value={pin}
+              onChange={e => setPin(e.target.value)}
+              className="w-48 text-center px-3 py-2 border-2 border-gray-200 rounded-lg text-sm focus:outline-none focus:border-brand-red"
+              placeholder="PIN" data-testid="orders-pin-input"
+            />
+            {loginError && <p className="text-xs text-red-600 font-medium">{loginError}</p>}
+            <button type="submit" disabled={loggingIn || !pin}
+              className="w-48 py-2 bg-brand-red hover:bg-brand-red-dark text-white font-bold rounded-lg text-sm disabled:opacity-50"
+              data-testid="orders-login-btn">
+              {loggingIn ? 'Verificando...' : 'Entrar'}
+            </button>
+          </form>
+        ) : (
+        <>
         {/* Stats bar */}
         {stats && (
           <div className="px-3 md:px-5 py-2 bg-gray-50 border-b flex flex-wrap items-center gap-3 md:gap-6 text-xs" data-testid="orders-stats">
@@ -207,6 +269,8 @@ export default function OrdersPanel({ onClose }) {
             </div>
           )}
         </div>
+        </>
+        )}
       </div>
     </div>
   );

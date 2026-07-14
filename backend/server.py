@@ -3,9 +3,11 @@ import re
 import time
 import hmac
 import hashlib
+import secrets
 import httpx
 import asyncio
 import logging
+import jwt
 from collections import defaultdict, deque
 from urllib.parse import quote
 from datetime import datetime, timezone
@@ -30,9 +32,13 @@ WC_KEY = os.environ.get("WC_CONSUMER_KEY", "")
 WC_SECRET = os.environ.get("WC_CONSUMER_SECRET", "")
 WC_WEBHOOK_SECRET = os.environ.get("WC_WEBHOOK_SECRET", "mercalo-pos-webhook-2026")
 SYNC_INTERVAL_MINUTES = int(os.environ.get("SYNC_INTERVAL_MINUTES", "10"))
-# Si se configura, protege /orders/recent, /orders/stats y /orders/operators.
-# Si queda vacio (por defecto), esos endpoints siguen funcionando igual que hoy.
-ADMIN_API_KEY = os.environ.get("ADMIN_API_KEY", "")
+# Login con PIN para proteger /orders/recent, /orders/stats y /orders/operators.
+# Si ORDERS_PIN queda vacio (por defecto), esos endpoints siguen funcionando igual que hoy, sin login.
+ORDERS_PIN = os.environ.get("ORDERS_PIN", "")
+# Firma los tokens de sesion. Si no se configura, se genera uno aleatorio al iniciar
+# (las sesiones activas se invalidan en cada redeploy, lo cual es aceptable para este uso).
+JWT_SECRET = os.environ.get("JWT_SECRET") or secrets.token_hex(32)
+SESSION_HOURS = 8
 
 P = "/api"
 
@@ -55,10 +61,25 @@ def rate_limit(request: Request, bucket: str, max_requests: int = 30, window_sec
     q.append(now)
 
 
-def require_admin_key(x_admin_key: str = Header(default="")):
-    """Si ADMIN_API_KEY esta configurado, exige que coincida. Si no esta configurado, no bloquea nada."""
-    if ADMIN_API_KEY and x_admin_key != ADMIN_API_KEY:
+def create_session_token() -> str:
+    payload = {
+        "role": "operator",
+        "exp": datetime.now(timezone.utc).timestamp() + SESSION_HOURS * 3600,
+    }
+    return jwt.encode(payload, JWT_SECRET, algorithm="HS256")
+
+
+def require_session(authorization: str = Header(default="")):
+    """Si ORDERS_PIN esta configurado, exige un token de sesion valido (Bearer). Si no, no bloquea nada."""
+    if not ORDERS_PIN:
+        return
+    token = authorization[7:].strip() if authorization.startswith("Bearer ") else ""
+    if not token:
         raise HTTPException(status_code=401, detail="No autorizado")
+    try:
+        jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
+    except jwt.PyJWTError:
+        raise HTTPException(status_code=401, detail="Sesion invalida o expirada")
 
 
 def phone_regex_prefix(phone: str) -> str:
@@ -862,7 +883,22 @@ async def create_order(order: CreateOrderRequest, request: Request):
             return {"success": False, "error": error_msg, "status_code": resp.status_code}
 
 
-@app.get(f"{P}/orders/recent", dependencies=[Depends(require_admin_key)])
+class LoginRequest(BaseModel):
+    pin: str
+
+
+@app.post(f"{P}/auth/login")
+async def login(body: LoginRequest, request: Request):
+    """Login con PIN para el panel de pedidos. Devuelve un token de sesion valido por unas horas."""
+    rate_limit(request, "auth-login", max_requests=8, window_seconds=300)
+    if not ORDERS_PIN:
+        raise HTTPException(status_code=400, detail="Login no configurado")
+    if not hmac.compare_digest(body.pin.strip(), ORDERS_PIN):
+        raise HTTPException(status_code=401, detail="PIN incorrecto")
+    return {"token": create_session_token()}
+
+
+@app.get(f"{P}/orders/recent", dependencies=[Depends(require_session)])
 async def recent_orders(
     request: Request,
     limit: int = Query(50, le=200),
@@ -884,7 +920,7 @@ async def recent_orders(
     return orders
 
 
-@app.get(f"{P}/orders/operators", dependencies=[Depends(require_admin_key)])
+@app.get(f"{P}/orders/operators", dependencies=[Depends(require_session)])
 async def get_operators():
     """Get distinct operators from order history."""
     db = get_db()
@@ -892,7 +928,7 @@ async def get_operators():
     return [o for o in operators if o]
 
 
-@app.get(f"{P}/orders/stats", dependencies=[Depends(require_admin_key)])
+@app.get(f"{P}/orders/stats", dependencies=[Depends(require_session)])
 async def order_stats(date: str = Query(None)):
     """Order stats for a given date (default: today)."""
     db = get_db()
