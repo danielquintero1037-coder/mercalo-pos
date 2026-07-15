@@ -70,9 +70,9 @@ def create_session_token() -> str:
 
 
 def require_session(authorization: str = Header(default="")):
-    """Si ORDERS_PIN esta configurado, exige un token de sesion valido (Bearer). Si no, no bloquea nada."""
-    if not ORDERS_PIN:
-        return
+    """Exige un token de sesion valido (Bearer) para el panel de operadora.
+    Mientras ORDERS_PIN no este configurado, nadie puede iniciar sesion, asi que
+    estos endpoints quedan completamente bloqueados (panel de operadora "apagado")."""
     token = authorization[7:].strip() if authorization.startswith("Bearer ") else ""
     if not token:
         raise HTTPException(status_code=401, detail="No autorizado")

@@ -76,9 +76,9 @@ export default function MyOrders({ onClose, addToCart, customerPhone, phoneLocke
     setLoading(false);
   }, [phone]);
 
-  // Primera vez: guarda el numero a nivel de la app (queda bloqueado despues de esto)
+  // Primera vez: guarda el numero a nivel de la app (queda bloqueado despues de esto, con los 10 digitos completos)
   const handleFirstSearch = () => {
-    if (phone.length < 7) return;
+    if (phone.replace(/\D/g, '').length !== 10) return;
     if (onCustomerPhone) onCustomerPhone(phone);
     searchOrders(phone);
   };
@@ -184,7 +184,7 @@ export default function MyOrders({ onClose, addToCart, customerPhone, phoneLocke
               />
             </div>
             {!phoneLocked && (
-              <button onClick={handleFirstSearch} disabled={phone.length < 7 || loading}
+              <button onClick={handleFirstSearch} disabled={phone.replace(/\D/g, '').length !== 10 || loading}
                 className="px-4 py-2.5 bg-brand-red text-white rounded-lg font-medium text-sm disabled:opacity-50 flex items-center gap-1.5"
                 data-testid="my-orders-search-btn">
                 {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}

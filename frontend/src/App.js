@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { ClipboardList, ShoppingCart, Share2, Package, Phone, Tag, Lock, Pencil } from 'lucide-react';
+import { ShoppingCart, Share2, Package, Phone, Tag, Lock, Pencil } from 'lucide-react';
 import SearchBar from './components/SearchBar';
 import TopSellers from './components/TopSellers';
 import Cart from './components/Cart';
@@ -11,7 +11,6 @@ import Favorites from './components/Favorites';
 import RecentOrders from './components/RecentOrders';
 import OffersPanel from './components/OffersPanel';
 import OffersPopup from './components/OffersPopup';
-import { NotificationBell } from './components/NotificationsPanel';
 
 const API = process.env.REACT_APP_BACKEND_URL || '';
 
@@ -41,15 +40,15 @@ export default function App() {
   const [customerPhone, setCustomerPhone] = useState(() => {
     try { return localStorage.getItem('mercalo-customer-phone') || ''; } catch { return ''; }
   });
-  // Una vez el numero queda guardado en este dispositivo, se bloquea para escritura
-  // (evita que alguien borre y escriba el numero de otra persona para ver sus datos).
+  // Una vez el numero completo (10 digitos) queda guardado en este dispositivo, se bloquea
+  // para escritura (evita que alguien borre y escriba el numero de otra persona para ver sus datos).
   const [phoneLocked, setPhoneLocked] = useState(() => {
-    try { return (localStorage.getItem('mercalo-customer-phone') || '').length >= 7; } catch { return false; }
+    try { return (localStorage.getItem('mercalo-customer-phone') || '').replace(/\D/g, '').length === 10; } catch { return false; }
   });
 
   useEffect(() => {
     try {
-      if (customerPhone.length >= 7) {
+      if (customerPhone.replace(/\D/g, '').length === 10) {
         localStorage.setItem('mercalo-customer-phone', customerPhone);
         setPhoneLocked(true);
       }
@@ -207,13 +206,7 @@ export default function App() {
                 <Tag className="w-3.5 h-3.5" />
                 <span className="hidden sm:inline">Ofertas</span>
               </button>
-              <NotificationBell />
-              <button onClick={() => setShowOrders(true)}
-                className="flex items-center gap-1 md:gap-1.5 px-2 md:px-3 py-1.5 rounded bg-white/15 hover:bg-white/25 transition-colors text-xs font-medium"
-                data-testid="orders-btn">
-                <ClipboardList className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">Pedidos</span>
-              </button>
+              {/* "Ver Pedidos" y Alertas desactivados temporalmente (panel de operadora sin uso por ahora) */}
               <SyncBanner syncing={syncStatus.syncing} onSync={triggerSync} total={syncStatus.total} syncInterval={syncStatus.syncInterval} />
             </>
           )}
