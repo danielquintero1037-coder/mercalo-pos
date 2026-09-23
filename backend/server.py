@@ -42,6 +42,35 @@ SESSION_HOURS = 8
 
 P = "/api"
 
+# Descuentos de carnes desactivados temporalmente: con HIDE_MEAT_PROMOS=1 (por defecto) los productos
+# de estas categorias siempre se muestran y cobran a precio regular. Para reactivarlos: HIDE_MEAT_PROMOS=0 en Railway.
+HIDE_MEAT_PROMOS = os.environ.get("HIDE_MEAT_PROMOS", "1") != "0"
+MEAT_CATEGORY_IDS = [260, 300, 301, 302]  # Carne Pollo y Pescado, Carne, Pescado, Pollo
+
+
+def strip_meat_promo(doc):
+    """Quita ofertas de un producto de carnes (precio = precio regular). Modifica y devuelve el doc."""
+    if not HIDE_MEAT_PROMOS or not doc:
+        return doc
+    if not any(c.get("id") in MEAT_CATEGORY_IDS for c in doc.get("categories") or []):
+        return doc
+    if "on_sale" in doc:
+        doc["on_sale"] = False
+    if "sale_price" in doc:
+        doc["sale_price"] = ""
+    regular = doc.get("regular_price")
+    if regular:
+        doc["price"] = regular
+    regulars = []
+    for v in doc.get("variations") or []:
+        if v.get("regular_price"):
+            v["price"] = v["regular_price"]
+            regulars.append(float(v["regular_price"]))
+        v["sale_price"] = ""
+    if not regular and regulars and doc.get("product_type") == "variable":
+        doc["price"] = str(int(min(regulars)))
+    return doc
+
 
 # ─── Rate limiting simple (sin dependencias externas) ───
 
@@ -358,7 +387,7 @@ async def search_products(request: Request, q: str = Query("", min_length=0), li
         {"$sort": {"total_sales": -1}}, {"$limit": limit},
         {"$project": {"_id": 0, "search_text": 0}},
     ]
-    return await db.products.aggregate(pipeline).to_list(limit)
+    return [strip_meat_promo(d) for d in await db.products.aggregate(pipeline).to_list(limit)]
 
 
 @app.get(f"{P}/products/suggested")
@@ -373,7 +402,7 @@ async def suggested_products(request: Request, q: str = Query("", min_length=0))
         {"$sort": {"total_sales": -1}}, {"$limit": 5},
         {"$project": {"_id": 0, "search_text": 0}},
     ]
-    return await db.products.aggregate(pipeline).to_list(5)
+    return [strip_meat_promo(d) for d in await db.products.aggregate(pipeline).to_list(5)]
 
 
 @app.get(f"{P}/products/top-sellers")
@@ -392,21 +421,24 @@ async def top_sellers(category_id: int = Query(None), limit: int = Query(50, le=
         {"$skip": offset}, {"$limit": limit},
         {"$project": {"_id": 0, "search_text": 0}},
     ]
-    return await db.products.aggregate(pipeline).to_list(limit)
+    return [strip_meat_promo(d) for d in await db.products.aggregate(pipeline).to_list(limit)]
 
 
 @app.get(f"{P}/products/offers")
 async def get_offers(limit: int = Query(50, le=100)):
     """Get all products currently on sale."""
     db = get_db()
+    match = {
+        "$or": [
+            {"on_sale": True, "sale_price": {"$nin": ["", None]}},
+            {"on_sale": True, "product_type": "variable"},
+            {"short_description": {"$regex": "^combo:"}},
+        ],
+    }
+    if HIDE_MEAT_PROMOS:
+        match["categories.id"] = {"$nin": MEAT_CATEGORY_IDS}
     pipeline = [
-        {"$match": {
-            "$or": [
-                {"on_sale": True, "sale_price": {"$nin": ["", None]}},
-                {"on_sale": True, "product_type": "variable"},
-                {"short_description": {"$regex": "^combo:"}},
-            ],
-        }},
+        {"$match": match},
         {"$sort": {"total_sales": -1}},
         {"$limit": limit},
         {"$project": {"_id": 0, "search_text": 0}},
@@ -427,7 +459,7 @@ async def products_by_ids(request: Request):
         {"woo_id": {"$in": ids}},
         {"_id": 0, "search_text": 0}
     ).to_list(100)
-    return products
+    return [strip_meat_promo(p) for p in products]
 
 
 @app.get("/api/products/{product_id}/variations")
@@ -435,10 +467,11 @@ async def get_variations(product_id: int):
     db = get_db()
     product = await db.products.find_one(
         {"woo_id": product_id},
-        {"_id": 0, "variations": 1, "attributes": 1, "wpp": 1, "product_type": 1}
+        {"_id": 0, "variations": 1, "attributes": 1, "wpp": 1, "product_type": 1, "categories": 1}
     )
     if not product:
         return {"variations": [], "attributes": [], "wpp": None}
+    strip_meat_promo(product)
     return {
         "variations": product.get("variations", []),
         "attributes": product.get("attributes", []),
@@ -752,10 +785,12 @@ async def resolve_authoritative_price(db, product_id: int, variation_id: Optiona
     Si no coincide con el precio real, se usa el precio del catalogo en su lugar.
     Si el producto no esta en cache (caso raro), se confia en el precio enviado."""
     product = await db.products.find_one(
-        {"woo_id": product_id}, {"_id": 0, "price": 1, "variations": 1, "wpp": 1}
+        {"woo_id": product_id},
+        {"_id": 0, "price": 1, "regular_price": 1, "variations": 1, "wpp": 1, "categories": 1, "product_type": 1}
     )
     if not product:
         return submitted_price
+    strip_meat_promo(product)
     try:
         submitted = float(submitted_price)
     except (TypeError, ValueError):
