@@ -85,6 +85,11 @@ def strip_meat_promo(doc):
 _rate_buckets = defaultdict(deque)
 
 
+def err_text(e: Exception) -> str:
+    """Texto de error legible: incluye el tipo (algunas excepciones, como los timeouts, vienen con mensaje vacio)."""
+    return f"{type(e).__name__}: {e}".strip(": ")
+
+
 def rate_limit(request: Request, bucket: str, max_requests: int = 30, window_seconds: int = 60):
     """Limite simple por IP + endpoint usando ventana deslizante en memoria."""
     ip = request.client.host if request.client else "unknown"
@@ -157,10 +162,10 @@ async def background_sync(app):
             logger.info("Background sync completed")
         except Exception as e:
             failures += 1
-            logger.error(f"Background sync error: {e}")
+            logger.error(f"Background sync error: {err_text(e)}")
             try:
                 await db.sync_log.insert_one({
-                    "type": "periodic" if full else "incremental", "status": "error", "error": str(e)[:500],
+                    "type": "periodic" if full else "incremental", "status": "error", "error": err_text(e)[:500],
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                 })
             except Exception:
@@ -283,7 +288,7 @@ async def run_full_sync(db):
             for r in results:
                 if isinstance(r, Exception):
                     failed_pages += 1
-                    logger.error(f"Sync page failed: {r}")
+                    logger.error(f"Sync page failed: {err_text(r)}")
                     continue
                 for p in r[0]:
                     doc = product_to_doc(p)
@@ -400,7 +405,7 @@ async def sync_products(request: Request):
     try:
         synced, total = await run_full_sync(db)
     except Exception as e:
-        raise HTTPException(status_code=502, detail=f"Sync fallo: {str(e)[:300]}")
+        raise HTTPException(status_code=502, detail=f"Sync fallo: {err_text(e)[:300]}")
     count = await db.products.count_documents({})
     return {"synced": synced, "total_in_cache": count, "wc_total": total}
 
@@ -412,7 +417,7 @@ async def sync_variations(request: Request):
     try:
         synced, var_count = await run_variations_sync(db)
     except Exception as e:
-        raise HTTPException(status_code=502, detail=f"Sync de variaciones fallo: {str(e)[:300]}")
+        raise HTTPException(status_code=502, detail=f"Sync de variaciones fallo: {err_text(e)[:300]}")
     return {"synced_variations": synced, "variable_products": var_count}
 
 
