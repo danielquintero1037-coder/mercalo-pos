@@ -69,8 +69,11 @@ def strip_meat_promo(doc):
     regulars = []
     for v in doc.get("variations") or []:
         if v.get("regular_price"):
-            v["price"] = v["regular_price"]
-            regulars.append(float(v["regular_price"]))
+            try:
+                regulars.append(float(v["regular_price"]))
+                v["price"] = v["regular_price"]
+            except (TypeError, ValueError):
+                pass
         v["sale_price"] = ""
     if not regular and regulars and doc.get("product_type") == "variable":
         doc["price"] = str(int(min(regulars)))
@@ -1169,9 +1172,13 @@ async def customer_favorites(request: Request, phone: str = Query(..., min_lengt
     product_ids = [f["_id"] for f in favorites]
     products = await db.products.find(
         {"woo_id": {"$in": product_ids}},
-        {"_id": 0, "woo_id": 1, "name": 1, "price": 1, "image_url": 1, "product_type": 1, "stock_quantity": 1}
+        {"_id": 0, "woo_id": 1, "name": 1, "price": 1, "regular_price": 1, "categories": 1, "variations": 1,
+         "image_url": 1, "product_type": 1, "stock_quantity": 1}
     ).to_list(limit)
-    product_map = {p["woo_id"]: p for p in products}
+    product_map = {p["woo_id"]: strip_meat_promo(p) for p in products}
+    for p in product_map.values():
+        for extra in ("regular_price", "categories", "variations"):
+            p.pop(extra, None)
     result = []
     for f in favorites:
         prod = product_map.get(f["_id"])
