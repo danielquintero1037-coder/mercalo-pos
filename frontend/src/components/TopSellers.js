@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { TrendingUp, Plus, ChevronDown } from 'lucide-react';
+import { hasPromo } from '../utils/promo';
 
 const API = process.env.REACT_APP_BACKEND_URL || '';
 
@@ -22,8 +23,8 @@ export default function TopSellers({ addToCart, categories, children }) {
       const data = await r.json();
       // Sort: promotions first, then by total_sales
       data.sort((a, b) => {
-        const aPromo = a.sale_price && a.regular_price && parseInt(a.sale_price) < parseInt(a.regular_price) ? 1 : 0;
-        const bPromo = b.sale_price && b.regular_price && parseInt(b.sale_price) < parseInt(b.regular_price) ? 1 : 0;
+        const aPromo = hasPromo(a) ? 1 : 0;
+        const bPromo = hasPromo(b) ? 1 : 0;
         return bPromo - aPromo;
       });
       setProducts(prev => {
@@ -106,12 +107,12 @@ export default function TopSellers({ addToCart, categories, children }) {
           <>
           <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8 gap-1.5 md:gap-2">
             {products.map(product => {
-              const hasPromo = product.sale_price && product.regular_price && parseInt(product.sale_price) < parseInt(product.regular_price);
+              const promo = hasPromo(product);
               return (
               <button
                 key={product.woo_id}
                 onClick={() => addToCart(product)}
-                className={`group bg-white rounded-lg border p-1.5 hover:shadow-md transition-all text-left relative ${hasPromo ? 'border-orange-300 ring-1 ring-orange-200' : 'border-gray-100 hover:border-brand-red'}`}
+                className={`group bg-white rounded-lg border p-1.5 hover:shadow-md transition-all text-left relative ${promo ? 'border-orange-300 ring-1 ring-orange-200' : 'border-gray-100 hover:border-brand-red'}`}
                 data-testid={`top-seller-${product.woo_id}`}
               >
                 <div className="relative aspect-square rounded overflow-hidden bg-gray-50 mb-1">
@@ -124,7 +125,7 @@ export default function TopSellers({ addToCart, categories, children }) {
                   <div className="absolute inset-0 bg-brand-red/0 group-hover:bg-brand-red/10 transition-colors flex items-center justify-center">
                     <Plus className="w-6 h-6 text-white opacity-0 group-hover:opacity-100 transition-opacity drop-shadow-lg" />
                   </div>
-                  {hasPromo && (
+                  {promo && (
                     <span className="absolute top-0.5 left-0.5 bg-orange-500 text-white text-[8px] md:text-[9px] font-bold px-1.5 py-0.5 rounded shadow-sm" data-testid={`promo-badge-${product.woo_id}`}>OFERTA</span>
                   )}
                   {(() => {
@@ -147,10 +148,10 @@ export default function TopSellers({ addToCart, categories, children }) {
                   )}
                 </div>
                 <p className="text-xs font-medium text-gray-800 leading-tight line-clamp-2 h-8">{product.name}</p>
-                {hasPromo ? (
+                {promo ? (
                   <div className="mt-0.5">
                     <span className="text-[10px] text-gray-400 line-through">{formatPrice(product.regular_price)}</span>
-                    <span className="text-xs font-bold text-orange-600 ml-1">{formatPrice(product.sale_price || product.price)}</span>
+                    <span className="text-xs font-bold text-orange-600 ml-1">{formatPrice(product.price)}</span>
                   </div>
                 ) : (
                   <p className="text-xs font-bold text-brand-red mt-0.5">{formatPrice(product.price)}</p>

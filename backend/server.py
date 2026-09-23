@@ -106,6 +106,13 @@ async def background_sync(app):
             logger.info("Background sync completed")
         except Exception as e:
             logger.error(f"Background sync error: {e}")
+            try:
+                await app.state.db.sync_log.insert_one({
+                    "type": "periodic", "status": "error", "error": str(e)[:500],
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                })
+            except Exception:
+                pass
 
 
 @asynccontextmanager
@@ -153,7 +160,8 @@ async def wc_fetch_page(client, endpoint, page, per_page=100):
     }
     resp = await client.get(f"{WC_URL}/wp-json/wc/v3/{endpoint}", params=params,
                             headers={"User-Agent": "MercaloPOS/1.0"}, timeout=30)
-    resp.raise_for_status()
+    if resp.status_code != 200:
+        raise RuntimeError(f"WooCommerce respondio {resp.status_code} en {endpoint} pagina {page}: {resp.text[:150]!r}")
     total = int(resp.headers.get("x-wp-total", 0))
     total_pages = int(resp.headers.get("x-wp-totalpages", 0))
     return resp.json(), total, total_pages
@@ -200,6 +208,7 @@ async def run_full_sync(db):
         if ops:
             await db.products.bulk_write(ops, ordered=False)
             synced += len(ops)
+        failed_pages = 0
         for batch_start in range(2, total_pages + 1, 5):
             batch_end = min(batch_start + 5, total_pages + 1)
             tasks = [wc_fetch_page(client, "products", pg) for pg in range(batch_start, batch_end)]
@@ -207,6 +216,8 @@ async def run_full_sync(db):
             ops = []
             for r in results:
                 if isinstance(r, Exception):
+                    failed_pages += 1
+                    logger.error(f"Sync page failed: {r}")
                     continue
                 for p in r[0]:
                     doc = product_to_doc(p)
@@ -215,6 +226,8 @@ async def run_full_sync(db):
             if ops:
                 await db.products.bulk_write(ops, ordered=False)
                 synced += len(ops)
+    if failed_pages:
+        raise RuntimeError(f"Sync incompleto: fallaron {failed_pages} paginas de WooCommerce")
     # Remove products no longer in WooCommerce (trashed/deleted/draft)
     if all_woo_ids:
         deleted = await db.products.delete_many({"woo_id": {"$nin": list(all_woo_ids)}})
@@ -226,6 +239,7 @@ async def run_full_sync(db):
 async def run_variations_sync(db):
     variable_products = await db.products.find({"product_type": "variable"}, {"_id": 0, "woo_id": 1}).to_list(500)
     synced = 0
+    failed = 0
     async with httpx.AsyncClient() as client:
         for batch_start in range(0, len(variable_products), 5):
             batch = variable_products[batch_start:batch_start + 5]
@@ -236,7 +250,8 @@ async def run_variations_sync(db):
             ) for vp in batch]
             results = await asyncio.gather(*tasks, return_exceptions=True)
             for i, r in enumerate(results):
-                if isinstance(r, Exception):
+                if isinstance(r, Exception) or r.status_code != 200:
+                    failed += 1
                     continue
                 parent_id = batch[i]["woo_id"]
                 var_docs = [{
@@ -251,6 +266,10 @@ async def run_variations_sync(db):
                 if var_docs:
                     await db.products.update_one({"woo_id": parent_id}, {"$set": {"variations": var_docs}})
                     synced += len(var_docs)
+    if failed:
+        logger.error(f"Variations sync: {failed} productos fallaron")
+        if failed == len(variable_products):
+            raise RuntimeError("No se pudo sincronizar ninguna variacion desde WooCommerce")
     return synced, len(variable_products)
 
 
@@ -300,7 +319,10 @@ async def health():
 async def sync_products(request: Request):
     rate_limit(request, "products-sync", max_requests=5, window_seconds=60)
     db = get_db()
-    synced, total = await run_full_sync(db)
+    try:
+        synced, total = await run_full_sync(db)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Sync fallo: {str(e)[:300]}")
     count = await db.products.count_documents({})
     return {"synced": synced, "total_in_cache": count, "wc_total": total}
 
@@ -309,7 +331,10 @@ async def sync_products(request: Request):
 async def sync_variations(request: Request):
     rate_limit(request, "products-sync-variations", max_requests=5, window_seconds=60)
     db = get_db()
-    synced, var_count = await run_variations_sync(db)
+    try:
+        synced, var_count = await run_variations_sync(db)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Sync de variaciones fallo: {str(e)[:300]}")
     return {"synced_variations": synced, "variable_products": var_count}
 
 

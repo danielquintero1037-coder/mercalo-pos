@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Search, Plus, Star } from 'lucide-react';
+import { hasPromo } from '../utils/promo';
 
 const API = process.env.REACT_APP_BACKEND_URL || '';
 
@@ -220,15 +221,15 @@ function ProductRow({ product, onAdd, onIncrement, formatPrice, badge, highlight
           <span className={product.stock_status === 'instock' ? 'text-green-600' : 'text-red-500'}>
             {product.stock_quantity != null ? `Stock: ${product.stock_quantity}` : product.stock_status === 'instock' ? 'En stock' : 'Agotado'}
           </span>
-          {(product.sale_price && product.regular_price && parseInt(product.sale_price) < parseInt(product.regular_price)) && (
+          {hasPromo(product) && (
             <span className="bg-orange-500 text-white text-[9px] font-bold px-1.5 py-0.5 rounded">OFERTA</span>
           )}
         </div>
       </div>
-      {(product.sale_price && product.regular_price && parseInt(product.sale_price) < parseInt(product.regular_price)) ? (
+      {hasPromo(product) ? (
         <div className="shrink-0 text-right">
           <span className="text-[10px] text-gray-400 line-through block">{formatPrice(product.regular_price)}</span>
-          <span className="text-sm font-bold text-orange-600">{formatPrice(product.sale_price || product.price)}</span>
+          <span className="text-sm font-bold text-orange-600">{formatPrice(product.price)}</span>
         </div>
       ) : (
         <span className="text-sm font-bold text-brand-red shrink-0">{formatPrice(product.price)}</span>
