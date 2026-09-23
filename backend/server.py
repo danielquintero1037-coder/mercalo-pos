@@ -47,9 +47,9 @@ SESSION_HOURS = 8
 
 P = "/api"
 
-# Descuentos de carnes desactivados temporalmente: con HIDE_MEAT_PROMOS=1 (por defecto) los productos
-# de estas categorias siempre se muestran y cobran a precio regular. Para reactivarlos: HIDE_MEAT_PROMOS=0 en Railway.
-HIDE_MEAT_PROMOS = os.environ.get("HIDE_MEAT_PROMOS", "1") != "0"
+# Interruptor de emergencia: con HIDE_MEAT_PROMOS=1 en Railway, los productos de estas categorias se muestran
+# y cobran siempre a precio regular (ignora ofertas). Por defecto esta apagado: se respeta lo que diga WooCommerce.
+HIDE_MEAT_PROMOS = os.environ.get("HIDE_MEAT_PROMOS", "0") == "1"
 MEAT_CATEGORY_IDS = [260, 300, 301, 302]  # Carne Pollo y Pescado, Carne, Pescado, Pollo
 
 
@@ -407,6 +407,7 @@ async def sync_products(request: Request):
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Sync fallo: {err_text(e)[:300]}")
     count = await db.products.count_documents({})
+    await db.sync_log.insert_one({"type": "manual", "status": "ok", "timestamp": datetime.now(timezone.utc).isoformat()})
     return {"synced": synced, "total_in_cache": count, "wc_total": total}
 
 
