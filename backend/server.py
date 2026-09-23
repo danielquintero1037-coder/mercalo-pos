@@ -53,8 +53,31 @@ HIDE_MEAT_PROMOS = os.environ.get("HIDE_MEAT_PROMOS", "0") == "1"
 MEAT_CATEGORY_IDS = [260, 300, 301, 302]  # Carne Pollo y Pescado, Carne, Pescado, Pollo
 
 
+def _num(x):
+    try:
+        return float(x)
+    except (TypeError, ValueError):
+        return None
+
+
+def clean_inactive_promo(doc):
+    """WooCommerce deja sale_price guardado cuando la oferta esta programada (aun no empieza) o ya vencio.
+    Si la oferta no esta vigente se vacia sale_price, para que ningun cliente la muestre como descuento."""
+    if not doc:
+        return doc
+    if doc.get("on_sale") is False and doc.get("sale_price"):
+        doc["sale_price"] = ""
+    for v in doc.get("variations") or []:
+        price, regular = _num(v.get("price")), _num(v.get("regular_price"))
+        if v.get("sale_price") and price is not None and regular is not None and price >= regular:
+            v["sale_price"] = ""
+    return doc
+
+
 def strip_meat_promo(doc):
-    """Quita ofertas de un producto de carnes (precio = precio regular). Modifica y devuelve el doc."""
+    """Limpia ofertas no vigentes en cualquier producto y, si HIDE_MEAT_PROMOS=1, quita tambien las de carnes
+    (precio = precio regular). Modifica y devuelve el doc."""
+    clean_inactive_promo(doc)
     if not HIDE_MEAT_PROMOS or not doc:
         return doc
     if not any(c.get("id") in MEAT_CATEGORY_IDS for c in doc.get("categories") or []):
