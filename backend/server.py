@@ -10,7 +10,7 @@ import logging
 import jwt
 from collections import defaultdict, deque
 from urllib.parse import quote
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from dotenv import load_dotenv
 from fastapi import FastAPI, Query, Request, Header, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
@@ -32,6 +32,11 @@ WC_KEY = os.environ.get("WC_CONSUMER_KEY", "")
 WC_SECRET = os.environ.get("WC_CONSUMER_SECRET", "")
 WC_WEBHOOK_SECRET = os.environ.get("WC_WEBHOOK_SECRET", "mercalo-pos-webhook-2026")
 SYNC_INTERVAL_MINUTES = int(os.environ.get("SYNC_INTERVAL_MINUTES", "10"))
+# Sync liviano: cada intervalo solo se traen los productos modificados; el sync completo (todo el catalogo,
+# variaciones y borrados) corre cada FULL_SYNC_HOURS. WC_PAUSE_SECONDS espacia las llamadas a WooCommerce
+# para no activar el firewall anti-bots del hosting.
+FULL_SYNC_HOURS = float(os.environ.get("FULL_SYNC_HOURS", "6"))
+WC_PAUSE_SECONDS = float(os.environ.get("WC_PAUSE_SECONDS", "0.4"))
 # Login con PIN para proteger /orders/recent, /orders/stats y /orders/operators.
 # Si ORDERS_PIN queda vacio (por defecto), esos endpoints siguen funcionando igual que hoy, sin login.
 ORDERS_PIN = os.environ.get("ORDERS_PIN", "")
@@ -119,25 +124,40 @@ def phone_regex_prefix(phone: str) -> str:
 # ─── Background Sync ───
 
 async def background_sync(app):
-    """Periodic background sync every SYNC_INTERVAL_MINUTES."""
+    """Sync periodico liviano: incremental cada SYNC_INTERVAL_MINUTES y completo cada FULL_SYNC_HOURS.
+    Si falla (p. ej. bloqueo del firewall), espera cada vez mas antes de reintentar en vez de insistir."""
+    last_full = None          # monotonic del ultimo sync completo exitoso
+    last_started = None       # datetime UTC de inicio del ultimo sync exitoso (base del incremental)
+    failures = 0
     while True:
-        await asyncio.sleep(SYNC_INTERVAL_MINUTES * 60)
+        await asyncio.sleep(SYNC_INTERVAL_MINUTES * 60 * min(2 ** failures, 6))
+        db = app.state.db
+        full = last_full is None or (time.monotonic() - last_full) >= FULL_SYNC_HOURS * 3600
+        started = datetime.now(timezone.utc)
         try:
-            db = app.state.db
-            logger.info("Background sync starting...")
-            await run_full_sync(db)
-            await run_variations_sync(db)
-            await sync_shipping_from_wc(db)
+            if full:
+                logger.info("Background sync (completo) starting...")
+                await run_full_sync(db)
+                await run_variations_sync(db)
+                await sync_shipping_from_wc(db)
+                last_full = time.monotonic()
+            else:
+                since = (last_started - timedelta(minutes=5)).strftime("%Y-%m-%dT%H:%M:%S")
+                logger.info(f"Background sync (incremental desde {since}) starting...")
+                await run_incremental_sync(db, since)
+            last_started = started
+            failures = 0
             await db.sync_log.insert_one({
-                "type": "periodic", "status": "ok",
+                "type": "periodic" if full else "incremental", "status": "ok",
                 "timestamp": datetime.now(timezone.utc).isoformat(),
             })
             logger.info("Background sync completed")
         except Exception as e:
+            failures += 1
             logger.error(f"Background sync error: {e}")
             try:
-                await app.state.db.sync_log.insert_one({
-                    "type": "periodic", "status": "error", "error": str(e)[:500],
+                await db.sync_log.insert_one({
+                    "type": "periodic" if full else "incremental", "status": "error", "error": str(e)[:500],
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                 })
             except Exception:
@@ -182,10 +202,11 @@ def get_db():
 
 # ─── WooCommerce Helpers ───
 
-async def wc_fetch_page(client, endpoint, page, per_page=100):
+async def wc_fetch_page(client, endpoint, page, per_page=100, extra=None):
     params = {
         "consumer_key": WC_KEY, "consumer_secret": WC_SECRET,
         "per_page": per_page, "page": page, "status": "publish",
+        **(extra or {}),
     }
     resp = await client.get(f"{WC_URL}/wp-json/wc/v3/{endpoint}", params=params,
                             headers={"User-Agent": "MercaloPOS/1.0"}, timeout=30)
@@ -227,6 +248,18 @@ def product_to_doc(p):
 
 # ─── Reusable Sync Functions ───
 
+def variation_docs(items, parent_id):
+    return [{
+        "variation_id": v["id"], "parent_id": parent_id,
+        "attributes": {a["name"]: a["option"] for a in v.get("attributes", [])},
+        "price": v.get("price", "0"), "regular_price": v.get("regular_price", ""),
+        "sale_price": v.get("sale_price", ""), "sku": v.get("sku", ""),
+        "stock_status": v.get("stock_status", "instock"),
+        "stock_quantity": v.get("stock_quantity"),
+        "image_url": (v.get("image") or {}).get("src", ""),
+    } for v in items]
+
+
 async def run_full_sync(db):
     all_woo_ids = set()
     async with httpx.AsyncClient() as client:
@@ -238,8 +271,9 @@ async def run_full_sync(db):
             await db.products.bulk_write(ops, ordered=False)
             synced += len(ops)
         failed_pages = 0
-        for batch_start in range(2, total_pages + 1, 5):
-            batch_end = min(batch_start + 5, total_pages + 1)
+        for batch_start in range(2, total_pages + 1, 2):
+            await asyncio.sleep(WC_PAUSE_SECONDS)
+            batch_end = min(batch_start + 2, total_pages + 1)
             tasks = [wc_fetch_page(client, "products", pg) for pg in range(batch_start, batch_end)]
             results = await asyncio.gather(*tasks, return_exceptions=True)
             ops = []
@@ -265,13 +299,18 @@ async def run_full_sync(db):
     return synced, total
 
 
-async def run_variations_sync(db):
-    variable_products = await db.products.find({"product_type": "variable"}, {"_id": 0, "woo_id": 1}).to_list(500)
+async def run_variations_sync(db, parent_ids=None):
+    query = {"product_type": "variable"}
+    if parent_ids is not None:
+        query["woo_id"] = {"$in": list(parent_ids)}
+    variable_products = await db.products.find(query, {"_id": 0, "woo_id": 1}).to_list(500)
     synced = 0
     failed = 0
     async with httpx.AsyncClient() as client:
-        for batch_start in range(0, len(variable_products), 5):
-            batch = variable_products[batch_start:batch_start + 5]
+        for batch_start in range(0, len(variable_products), 2):
+            if batch_start:
+                await asyncio.sleep(WC_PAUSE_SECONDS)
+            batch = variable_products[batch_start:batch_start + 2]
             tasks = [client.get(
                 f"{WC_URL}/wp-json/wc/v3/products/{vp['woo_id']}/variations",
                 params={"consumer_key": WC_KEY, "consumer_secret": WC_SECRET, "per_page": 100},
@@ -283,15 +322,7 @@ async def run_variations_sync(db):
                     failed += 1
                     continue
                 parent_id = batch[i]["woo_id"]
-                var_docs = [{
-                    "variation_id": v["id"], "parent_id": parent_id,
-                    "attributes": {a["name"]: a["option"] for a in v.get("attributes", [])},
-                    "price": v.get("price", "0"), "regular_price": v.get("regular_price", ""),
-                    "sale_price": v.get("sale_price", ""), "sku": v.get("sku", ""),
-                    "stock_status": v.get("stock_status", "instock"),
-                    "stock_quantity": v.get("stock_quantity"),
-                    "image_url": (v.get("image") or {}).get("src", ""),
-                } for v in r.json()]
+                var_docs = variation_docs(r.json(), parent_id)
                 if var_docs:
                     await db.products.update_one({"woo_id": parent_id}, {"$set": {"variations": var_docs}})
                     synced += len(var_docs)
@@ -300,6 +331,29 @@ async def run_variations_sync(db):
         if failed == len(variable_products):
             raise RuntimeError("No se pudo sincronizar ninguna variacion desde WooCommerce")
     return synced, len(variable_products)
+
+
+async def run_incremental_sync(db, since_iso):
+    """Trae solo los productos modificados desde since_iso (UTC) y las variaciones de los variables."""
+    changed_ids, variable_ids, page, total_pages = [], [], 1, 1
+    async with httpx.AsyncClient() as client:
+        while page <= total_pages:
+            if page > 1:
+                await asyncio.sleep(WC_PAUSE_SECONDS)
+            data, _, total_pages = await wc_fetch_page(
+                client, "products", page, extra={"modified_after": since_iso, "dates_are_gmt": "true"})
+            total_pages = max(total_pages, 1)
+            docs = [product_to_doc(p) for p in data]
+            if docs:
+                await db.products.bulk_write(
+                    [UpdateOne({"woo_id": d["woo_id"]}, {"$set": d}, upsert=True) for d in docs], ordered=False)
+            changed_ids += [d["woo_id"] for d in docs]
+            variable_ids += [d["woo_id"] for d in docs if d["product_type"] == "variable"]
+            page += 1
+    if variable_ids:
+        await run_variations_sync(db, parent_ids=variable_ids)
+    logger.info(f"Incremental sync: {len(changed_ids)} productos modificados")
+    return len(changed_ids)
 
 
 async def sync_single_product(db, product_id):
@@ -323,15 +377,7 @@ async def sync_single_product(db, product_id):
                 headers={"User-Agent": "MercaloPOS/1.0"}, timeout=30,
             )
             if var_resp.status_code == 200:
-                var_docs = [{
-                    "variation_id": v["id"], "parent_id": product_id,
-                    "attributes": {a["name"]: a["option"] for a in v.get("attributes", [])},
-                    "price": v.get("price", "0"), "regular_price": v.get("regular_price", ""),
-                    "sale_price": v.get("sale_price", ""), "sku": v.get("sku", ""),
-                    "stock_status": v.get("stock_status", "instock"),
-                    "stock_quantity": v.get("stock_quantity"),
-                    "image_url": (v.get("image") or {}).get("src", ""),
-                } for v in var_resp.json()]
+                var_docs = variation_docs(var_resp.json(), product_id)
                 if var_docs:
                     await db.products.update_one({"woo_id": product_id}, {"$set": {"variations": var_docs}})
         return True
